@@ -501,41 +501,44 @@ def show_auth_page():
 @st.cache_data(ttl=300)  # Cache for 5 minutes
 def get_binance_client(api_key: str, api_secret: str):
     """
-    Get Binance client.
-    To bypass region restrictions when running on a US server, you may need
-    to use a proxy. The python-binance library uses the 'requests' library
-    under the hood, so you can pass proxy settings via the 'requests_params'.
+    Get Binance client, routing through a free Mexican HTTPS proxy
+    to bypass US region restrictions.
     """
-    # --- PROXY CONFIGURATION ---
-    # If your server is in a restricted region (like the US), you must
-    # use a proxy server located in a non-restricted region.
-    # Replace the placeholder values with your actual proxy server details.
-    # The proxy should support SOCKS5 or HTTP.
-    # Example for a SOCKS5 proxy: 'socks5://user:pass@host:port'
-    # Example for an HTTP proxy: 'http://user:pass@host:port'
+    # --- MEXICO HTTPS PROXY POOL ---
+    # These are example free MX proxies gathered from sites like ProxyNova
+    # and IPSpeed. They change frequently—swap them out if they go offline.
+    mexico_proxies = [
+        "http://152.70.162.218:8080",  # ProxyNova MX (HTTP CONNECT → HTTPS)
+        "http://190.121.102.138:3128", # IPSpeed MX
+        "http://201.220.50.254:8080",  # proxy-list.org MX
+    ]
+
+    # randomly pick one for each runtime (rotate on cache miss)
+    proxy_url = random.choice(mexico_proxies)
     proxies = {
-        # 'http': 'YOUR_PROXY_URL',
-        # 'https': 'YOUR_PROXY_URL',
+        "https": proxy_url
     }
 
-    requests_params = {"proxies": proxies} if proxies.get("http") else None
+    requests_params = {"proxies": proxies}
 
     try:
-        # Initialize client, ensuring tld='com' for the global site.
-        # Pass proxy parameters if they are set.
+        # force tld="com" for global Binance, pass our proxy settings
         client = BinanceClient(
-            api_key, api_secret, tld="com", requests_params=requests_params
+            api_key,
+            api_secret,
+            tld="com",
+            requests_params=requests_params
         )
-        # The ping call verifies the connection and authentication.
+        # quick ping to verify proxy+auth are working
         client.ping()
         return client
+
     except Exception as e:
-        st.error(f"Failed to connect to Binance: {str(e)}")
-        # Add a specific hint for proxy-related connection errors
-        if "proxy" in str(e).lower() or "connection" in str(e).lower():
+        st.error(f"Failed to connect via proxy {proxy_url}: {e}")
+        if "proxy" in str(e).lower() or "connect" in str(e).lower():
             st.warning(
-                "This might be a connection issue due to regional restrictions. "
-                "Ensure your proxy settings in the code are correct and the proxy server is active."
+                "Check that your chosen proxy is up and supports HTTPS "
+                "CONNECT. Swap the IP/port if needed."
             )
         return None
 
