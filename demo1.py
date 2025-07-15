@@ -23,8 +23,6 @@ import supabase
 import logging
 from supabase import create_client, Client as SupabaseClient
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 # Configure the app page
 st.set_page_config(
@@ -500,6 +498,8 @@ def show_auth_page():
 # =============================================================================
 # DATA FUNCTIONS
 # =============================================================================
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 @st.cache_data(ttl=300)
 def get_binance_client(api_key: str, api_secret: str):
