@@ -24,8 +24,8 @@ from supabase import create_client, Client as SupabaseClient
 
 # Configure the app page
 st.set_page_config(
-    page_title="Crypto Financial Dashboard",
-    page_icon="₿",
+    page_title=" Financial Dashboard",
+    page_icon="🪙",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
