@@ -1,6 +1,6 @@
 # Standard library imports
 import sys
-import hashlib
+# import hashlib  #<-- REMOVED
 import hmac
 import time
 from io import BytesIO
@@ -474,7 +474,8 @@ def show_auth_page():
 
 def create_binance_signature(query_string: str, secret: str) -> str:
     """Create signature for Binance API"""
-    return hmac.new(secret.encode('utf-8'), query_string.encode('utf-8'), hashlib.sha256).hexdigest()
+    # MODIFIED: Pass 'sha256' as a string to avoid explicit hashlib import.
+    return hmac.new(secret.encode('utf-8'), query_string.encode('utf-8'), 'sha256').hexdigest()
 
 
 @st.cache_data(ttl=300)  # Cache for 5 minutes
