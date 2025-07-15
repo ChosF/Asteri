@@ -1,512 +1,1051 @@
+# Standard library imports
+import sys
+from io import BytesIO
 
+# Third-party imports
 import streamlit as st
 import pandas as pd
 import numpy as np
+import requests
 import plotly.graph_objs as go
 from millify import millify
-import requests
-from io import BytesIO
-import sys
 
-def inject_custom_css():
-    """Inject modern CSS styling with dark mode support"""
-    st.markdown("""
-    <style>
-    /* Modern CSS Variables for Theme Support */
-    :root {
-        --primary-color: #3b82f6;
-        --secondary-color: #1e293b;
-        --accent-color: #06b6d4;
-        --success-color: #10b981;
-        --warning-color: #f59e0b;
-        --error-color: #ef4444;
-        --text-primary: #1f2937;
-        --text-secondary: #6b7280;
-        --bg-primary: #ffffff;
-        --bg-secondary: #f8fafc;
-        --border-color: #e5e7eb;
-        --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-        --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-        --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
-        --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
-        --border-radius: 0.5rem;
-        --transition: all 0.3s ease;
-    }
 
-    /* Dark mode variables */
-    .dark-mode {
-        --text-primary: #f9fafb;
-        --text-secondary: #d1d5db;
-        --bg-primary: #111827;
-        --bg-secondary: #1f2937;
-        --border-color: #374151;
-    }
-
-    /* Global Styles */
-    * {
-        box-sizing: border-box;
-    }
-
-    body {
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        background-color: var(--bg-secondary);
-        color: var(--text-primary);
-        line-height: 1.6;
-    }
-
-    /* Modern Header */
-    .modern-header {
-        background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
-        color: white;
-        padding: 2rem;
-        border-radius: var(--border-radius);
-        margin-bottom: 2rem;
-        box-shadow: var(--shadow-lg);
-        position: relative;
-        overflow: hidden;
-    }
-
-    .modern-header::before {
-        content: '';
-        position: absolute;
-        top: -50%;
-        right: -50%;
-        width: 200%;
-        height: 200%;
-        background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
-        animation: shimmer 3s infinite;
-    }
-
-    @keyframes shimmer {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
-    }
-
-    /* Modern Cards */
-    .modern-card {
-        background: var(--bg-primary);
-        border-radius: var(--border-radius);
-        padding: 1.5rem;
-        box-shadow: var(--shadow-md);
-        transition: var(--transition);
-        border: 1px solid var(--border-color);
-        position: relative;
-        overflow: hidden;
-    }
-
-    .modern-card:hover {
-        transform: translateY(-2px);
-        box-shadow: var(--shadow-xl);
-    }
-
-    .modern-card::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 3px;
-        background: linear-gradient(90deg, var(--primary-color), var(--accent-color));
-        transform: scaleX(0);
-        transition: var(--transition);
-    }
-
-    .modern-card:hover::before {
-        transform: scaleX(1);
-    }
-
-    /* Modern Metrics */
-    .metric-container {
-        display: flex;
-        flex-direction: column;
-        gap: 0.5rem;
-    }
-
-    .metric-value {
-        font-size: 2rem;
-        font-weight: 700;
-        color: var(--text-primary);
-        line-height: 1;
-    }
-
-    .metric-label {
-        font-size: 0.875rem;
-        color: var(--text-secondary);
-        font-weight: 500;
-    }
-
-    .metric-delta {
-        font-size: 0.75rem;
-        padding: 0.25rem 0.5rem;
-        border-radius: 9999px;
-        font-weight: 600;
-    }
-
-    .metric-delta.positive {
-        background-color: rgba(16, 185, 129, 0.1);
-        color: var(--success-color);
-    }
-
-    .metric-delta.negative {
-        background-color: rgba(239, 68, 68, 0.1);
-        color: var(--error-color);
-    }
-
-    /* Modern Input */
-    .modern-input {
-        border: 2px solid var(--border-color);
-        border-radius: var(--border-radius);
-        padding: 0.75rem 1rem;
-        font-size: 1rem;
-        transition: var(--transition);
-        background: var(--bg-primary);
-        color: var(--text-primary);
-    }
-
-    .modern-input:focus {
-        outline: none;
-        border-color: var(--primary-color);
-        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-    }
-
-    /* Modern Button */
-    .modern-button {
-        background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
-        color: white;
-        border: none;
-        padding: 0.75rem 1.5rem;
-        border-radius: var(--border-radius);
-        font-weight: 600;
-        cursor: pointer;
-        transition: var(--transition);
-        box-shadow: var(--shadow-sm);
-    }
-
-    .modern-button:hover {
-        transform: translateY(-1px);
-        box-shadow: var(--shadow-lg);
-    }
-
-    .modern-button:active {
-        transform: translateY(0);
-    }
-
-    /* Modern Table */
-    .modern-table {
-        background: var(--bg-primary);
-        border-radius: var(--border-radius);
-        overflow: hidden;
-        box-shadow: var(--shadow-md);
-    }
-
-    .modern-table table {
-        width: 100%;
-        border-collapse: collapse;
-    }
-
-    .modern-table th {
-        background: var(--bg-secondary);
-        padding: 1rem;
-        text-align: left;
-        font-weight: 600;
-        color: var(--text-primary);
-        border-bottom: 1px solid var(--border-color);
-    }
-
-    .modern-table td {
-        padding: 1rem;
-        border-bottom: 1px solid var(--border-color);
-        color: var(--text-primary);
-    }
-
-    .modern-table tr:hover {
-        background: var(--bg-secondary);
-    }
-
-    /* Responsive Grid */
-    .dashboard-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-        gap: 1.5rem;
-        margin: 1rem 0;
-    }
-
-    /* Chart Container */
-    .chart-container {
-        background: var(--bg-primary);
-        border-radius: var(--border-radius);
-        padding: 1.5rem;
-        box-shadow: var(--shadow-md);
-        margin: 1rem 0;
-    }
-
-    /* Loading Animation */
-    .loading-spinner {
-        display: inline-block;
-        width: 40px;
-        height: 40px;
-        border: 4px solid var(--border-color);
-        border-radius: 50%;
-        border-top-color: var(--primary-color);
-        animation: spin 1s ease-in-out infinite;
-    }
-
-    @keyframes spin {
-        to { transform: rotate(360deg); }
-    }
-
-    /* Hide Streamlit elements */
-    #MainMenu, footer, header {
-        display: none !important;
-    }
-
-    /* Custom scrollbar */
-    ::-webkit-scrollbar {
-        width: 8px;
-    }
-
-    ::-webkit-scrollbar-track {
-        background: var(--bg-secondary);
-    }
-
-    ::-webkit-scrollbar-thumb {
-        background: var(--primary-color);
-        border-radius: 4px;
-    }
-
-    ::-webkit-scrollbar-thumb:hover {
-        background: var(--accent-color);
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-# =============================================================================
-# MODERN UI COMPONENTS
-# =============================================================================
-
-def create_modern_card(title, value, delta=None, icon=None):
-    """Create a modern metric card with hover effects"""
-    delta_class = "positive" if delta and float(delta.strip('%')) > 0 else "negative" if delta else ""
-    delta_symbol = "+" if delta and float(delta.strip('%')) > 0 else ""
-    
-    card_html = f"""
-    <div class="modern-card">
-        <div class="metric-container">
-            <div class="metric-label">{title}</div>
-            <div class="metric-value">{value}</div>
-            {f'<div class="metric-delta {delta_class}">{delta_symbol}{delta}</div>' if delta else ''}
-        </div>
-    </div>
-    """
-    st.markdown(card_html, unsafe_allow_html=True)
-
-def create_section_header(title, subtitle=None):
-    """Create a modern section header"""
-    st.markdown(f"""
-    <div style="margin: 2rem 0 1rem 0;">
-        <h2 style="color: var(--text-primary); font-weight: 700; margin: 0;">{title}</h2>
-        {f'<p style="color: var(--text-secondary); margin: 0.5rem 0 0 0;">{subtitle}</p>' if subtitle else ''}
-    </div>
-    """, unsafe_allow_html=True)
-
-# =============================================================================
-# MODERNIZED APP LAYOUT
-# =============================================================================
-
-# Configure the app with modern settings
+# Configure the app page
 st.set_page_config(
-    page_title='Modern Financial Dashboard',
-    page_icon='📊',
+    page_title='Financial Dashboard',
+    page_icon='📈',
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# Inject custom CSS
-inject_custom_css()
 
-# Modern header
-st.markdown("""
-<div class="modern-header">
-    <h1 style="margin: 0; font-size: 2.5rem; font-weight: 700;">Financial Analytics Dashboard</h1>
-    <p style="margin: 0.5rem 0 0 0; opacity: 0.9; font-size: 1.1rem;">Real-time insights for smarter investment decisions</p>
-</div>
-""", unsafe_allow_html=True)
 
-# Modern search section
-col1, col2, col3 = st.columns([3, 1, 1])
-with col1:
-    symbol_input = st.text_input(
-        "Enter stock symbol",
-        placeholder="e.g., AAPL, MSFT, GOOGL",
-        label_visibility="collapsed"
-    ).upper()
+def apply_modern_css():
+    """
+    Apply modern CSS styling with glassmorphism effects, hover animations, and improved UI
+    """
+    modern_css = """
+    <style>
+        /* Import Google Fonts */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
-with col2:
-    st.write("")  # Spacing
-    st.write("")  # Spacing
-    search_clicked = st.button("🔍 Analyze", type="primary", use_container_width=True)
+        /* Root variables for consistent theming */
+        :root {
+            --primary-color: #667eea;
+            --secondary-color: #764ba2;
+            --accent-color: #f093fb;
+            --text-primary: #1a1a1a;
+            --text-secondary: #666666;
+            --background-primary: #f8fafc;
+            --background-secondary: #ffffff;
+            --glass-bg: rgba(255, 255, 255, 0.25);
+            --glass-border: rgba(255, 255, 255, 0.18);
+            --shadow-light: 0 8px 32px rgba(31, 38, 135, 0.37);
+            --shadow-hover: 0 15px 35px rgba(31, 38, 135, 0.2);
+            --border-radius: 16px;
+            --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
 
-with col3:
-    st.write("")  # Spacing
-    st.write("")  # Spacing
-    if st.button("⚙️ Settings", use_container_width=True):
-        st.session_state.show_settings = True
+        /* Global styles */
+        .stApp {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+
+        /* Main container */
+        .main .block-container {
+            max-width: 1200px;
+            padding: 2rem 1rem;
+            margin: 0 auto;
+        }
+
+        /* Header styling */
+        .main-header {
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--border-radius);
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: var(--shadow-light);
+            transition: var(--transition);
+        }
+
+        .main-header:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-hover);
+        }
+
+        .main-header h1 {
+            color: var(--text-primary);
+            font-weight: 700;
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+            text-align: center;
+        }
+
+        /* Input styling */
+        .stTextInput > div > div > input {
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            padding: 0.75rem 1rem;
+            font-size: 1.1rem;
+            font-weight: 500;
+            transition: var(--transition);
+        }
+
+        .stTextInput > div > div > input:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        /* Button styling */
+        .stButton > button {
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            border: none;
+            border-radius: 12px;
+            padding: 0.75rem 2rem;
+            font-weight: 600;
+            font-size: 1.1rem;
+            color: white;
+            transition: var(--transition);
+            box-shadow: var(--shadow-light);
+        }
+
+        .stButton > button:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-hover);
+            background: linear-gradient(135deg, var(--secondary-color), var(--primary-color));
+        }
+
+        /* Glass card styling */
+        .glass-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--border-radius);
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            box-shadow: var(--shadow-light);
+            transition: var(--transition);
+        }
+
+        .glass-card:hover {
+            transform: translateY(-3px);
+            box-shadow: var(--shadow-hover);
+        }
+
+        /* Company info card */
+        .company-info {
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--border-radius);
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            box-shadow: var(--shadow-light);
+            transition: var(--transition);
+        }
+
+        .company-info:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-hover);
+        }
+
+        .company-name {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+            text-align: center;
+        }
+
+        .company-logo {
+            text-align: center;
+            margin-bottom: 1rem;
+        }
+
+        .company-logo img {
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            transition: var(--transition);
+        }
+
+        .company-logo img:hover {
+            transform: scale(1.05);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+        }
+
+        /* Metrics styling */
+        .metric-container {
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--border-radius);
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            box-shadow: var(--shadow-light);
+            transition: var(--transition);
+            text-align: center;
+        }
+
+        .metric-container:hover {
+            transform: translateY(-3px);
+            box-shadow: var(--shadow-hover);
+        }
+
+        .stMetric {
+            background: transparent;
+        }
+
+        .stMetric > div {
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            transition: var(--transition);
+        }
+
+        .stMetric > div:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-hover);
+        }
+
+        .stMetric label {
+            font-weight: 600;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .stMetric [data-testid="metric-value"] {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        /* Info cards */
+        .info-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--border-radius);
+            padding: 1rem;
+            text-align: center;
+            box-shadow: var(--shadow-light);
+            transition: var(--transition);
+            margin-bottom: 1rem;
+        }
+
+        .info-card:hover {
+            transform: translateY(-3px);
+            box-shadow: var(--shadow-hover);
+        }
+
+        .info-card h3 {
+            color: var(--text-primary);
+            font-weight: 600;
+            margin: 0;
+            font-size: 1.1rem;
+        }
+
+        /* Chart container */
+        .chart-container {
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--border-radius);
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            box-shadow: var(--shadow-light);
+            transition: var(--transition);
+        }
+
+        .chart-container:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-hover);
+        }
+
+        /* Table styling */
+        .stDataFrame {
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--border-radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-light);
+        }
+
+        .stDataFrame table {
+            background: transparent;
+        }
+
+        .stDataFrame th {
+            background: rgba(102, 126, 234, 0.1);
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+
+        .stDataFrame td {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-primary);
+        }
+
+        /* Selectbox styling */
+        .stSelectbox > div > div {
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+        }
+
+        /* Download button */
+        .stDownloadButton > button {
+            background: linear-gradient(135deg, var(--accent-color), var(--primary-color));
+            border: none;
+            border-radius: 12px;
+            padding: 0.75rem 2rem;
+            font-weight: 600;
+            color: white;
+            transition: var(--transition);
+            box-shadow: var(--shadow-light);
+        }
+
+        .stDownloadButton > button:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-hover);
+        }
+
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .main .block-container {
+                padding: 1rem 0.5rem;
+            }
+
+            .main-header h1 {
+                font-size: 2rem;
+            }
+
+            .glass-card {
+                padding: 1rem;
+            }
+        }
+
+        /* Loading animation */
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        .loading {
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        /* Hide Streamlit elements */
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        header {visibility: hidden;}
+
+        /* Custom footer */
+        .custom-footer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border-top: 1px solid var(--glass-border);
+            padding: 1rem;
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+    </style>
+    """
+    st.markdown(modern_css, unsafe_allow_html=True)
+
+
+
+def create_glass_card(content, hover_effect=True):
+    """Create a glass morphism card with content"""
+    hover_class = "glass-card" if hover_effect else "glass-card-no-hover"
+    return f"""
+    <div class="{hover_class}">
+        {content}
+    </div>   
+
+def create_info_card(title, icon="📊"):
+    """Create an info card with glassmorphism effect"""
+    return f"""
+    <div class="info-card">
+        <h3>{icon} {title}</h3>
+    </div>
+    """
+
+def create_metric_card(label, value, delta=None):
+    """Create a metric card with glassmorphism effect"""
+    delta_html = f"<div class='metric-delta'>{delta}</div>" if delta else ""
+    return f"""
+    <div class="metric-container">
+        <div class="metric-label">{label}</div>
+        <div class="metric-value">{value}</div>
+        {delta_html}
+    </div>
+    """
+
+def get_delta(df: pd.DataFrame, key: str) -> str:
+    """Calculate percentage difference between the first two values"""
+    if key not in df.columns:
+        return f"Key '{key}' not found in DataFrame columns."
+
+    if len(df) < 2:
+        return "DataFrame must contain at least two rows."
+
+    val1 = df[key][1] # Second most recent
+    val2 = df[key][0] # Most recent
+
+    if pd.isna(val1) or pd.isna(val2):
+        return "N/A"
+
+    if val1 == 0:
+        if val2 == 0:
+            return "0.00%" # No change if both are zero
+        else:
+            return "Inf%" if val2 > 0 else "-Inf%" # Infinite change if previous was zero
+    else:
+        delta = (val2 - val1) / val1 * 100
+    
+    # Add a sign for positive deltas for consistency
+    return f"{delta:+.2f}%"
+
+
+def color_highlighter(val: str) -> str:
+    """Returns CSS styling for DataFrame cells"""
+    if isinstance(val, str) and val.startswith('-'):
+        return 'color: rgba(255, 0, 0, 0.9);'
+    elif isinstance(val, str) and not val.startswith('-') and val != "N/A":
+        try:
+            float_val = float(val.replace('%', '').replace('+', ''))
+            if float_val > 0:
+                return 'color: rgba(0, 128, 0, 0.9);'
+        except ValueError:
+            pass # Not a numerical string, do nothing
+    elif isinstance(val, (int, float)):
+        if val < 0:
+            return 'color: rgba(255, 0, 0, 0.9);'
+        elif val > 0:
+            return 'color: rgba(0, 128, 0, 0.9);'
+    return '' # Default or no specific color
+
 
 # =============================================================================
-# MODERN DATA DISPLAY
+# DATA FUNCTIONS (cached for performance)
 # =============================================================================
 
-if symbol_input and search_clicked:
+# Load API keys
+FMP_API_KEY = ["OoJcYpvMo94etCgLpr1s6TABcmhr7AWT"]
+ALPHA_API_KEY = ["ZPODKN7Q87COJ0IR"]
+
+@st.cache_data(ttl=60*60*24*30)
+def get_company_info(symbol: str) -> dict:
+    """Returns company information for the given stock symbol"""
+    api_endpoint = f'https://financialmodelingprep.com/api/v3/profile/{symbol}/'
+    params = {'apikey': FMP_API_KEY[0]} # Access the key from the list
     try:
-        # Fetch data (using your existing functions)
-        company_data = get_company_info(symbol_input)
-        metrics_data = key_metrics(symbol_input)
-        income_data = income_statement(symbol_input)
-        performance_data = stock_price(symbol_input)
-        ratios_data = financial_ratios(symbol_input)
-        balance_sheet_data = balance_sheet(symbol_input)
-        cashflow_data = cash_flow(symbol_input)
-
-        if company_data:
-            # Modern company header
-            st.markdown(f"""
-            <div style="display: flex; align-items: center; gap: 1rem; margin: 2rem 0;">
-                <img src="{company_data['Image']}" style="width: 60px; height: 60px; border-radius: 50%; box-shadow: var(--shadow-md);">
-                <div>
-                    <h2 style="margin: 0; font-size: 1.8rem;">{company_data['Name']}</h2>
-                    <p style="margin: 0; color: var(--text-secondary);">{company_data['Sector']} • {company_data['Exchange']}</p>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-
-            # Modern metrics grid
-            st.markdown('<div class="dashboard-grid">', unsafe_allow_html=True)
-            
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                create_modern_card(
-                    "Current Price", 
-                    f"${company_data['Price']}",
-                    f"{company_data['Price change']:.2f}%"
-                )
-            with col2:
-                create_modern_card(
-                    "Market Cap", 
-                    millify(company_data['Market Cap'], precision=2)
-                )
-            with col3:
-                create_modern_card(
-                    "P/E Ratio", 
-                    f"{metrics_data['P/E Ratio'][0]:.2f}"
-                )
-            with col4:
-                create_modern_card(
-                    "Dividend Yield", 
-                    f"{metrics_data['Dividend Yield'][0]*100:.2f}%"
-                )
-            
-            st.markdown('</div>', unsafe_allow_html=True)
-
-            # Modern tabs for different views
-            tab1, tab2, tab3, tab4 = st.tabs(["📈 Performance", "📊 Financials", "💰 Cash Flow", "📋 Ratios"])
-            
-            with tab1:
-                create_section_header("Price Performance", "Last 5 years of monthly data")
-                # Your existing performance chart with modern styling
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(
-                    x=performance_data.index,
-                    y=performance_data['Price'],
-                    mode='lines',
-                    line=dict(color='#3b82f6', width=3),
-                    fill='tonexty',
-                    fillcolor='rgba(59, 130, 246, 0.1)'
-                ))
-                fig.update_layout(
-                    height=400,
-                    margin=dict(l=0, r=0, t=0, b=0),
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    xaxis=dict(showgrid=False),
-                    yaxis=dict(showgrid=False, tickformat='$,.0f')
-                )
-                st.plotly_chart(fig, use_container_width=True)
-
-            with tab2:
-                col1, col2 = st.columns([2, 1])
-                with col1:
-                    create_section_header("Income Statement", "Annual financial performance")
-                    st.dataframe(
-                        income_data.applymap(lambda x: millify(x, precision=2)),
-                        use_container_width=True
-                    )
-                with col2:
-                    create_section_header("Key Metrics")
-                    st.dataframe(
-                        metrics_data[['Market Cap', 'ROE', 'D/E ratio']].applymap(lambda x: f"{x:.2f}"),
-                        use_container_width=True
-                    )
-
-            with tab3:
-                create_section_header("Cash Flow Analysis")
-                # Modern cash flow visualization
-                fig = go.Figure()
-                categories = ['Operating', 'Investing', 'Financing', 'Free Cash Flow']
-                values = [
-                    cashflow_data['Cash flows from operating activities'].iloc[0],
-                    cashflow_data['Cash flows from investing activities'].iloc[0],
-                    cashflow_data['Cash flows from financing activities'].iloc[0],
-                    cashflow_data['Free cash flow'].iloc[0]
-                ]
-                
-                fig.add_trace(go.Bar(
-                    x=categories,
-                    y=values,
-                    marker_color=['#10b981', '#f59e0b', '#3b82f6', '#8b5cf6'],
-                    text=[millify(v, precision=2) for v in values],
-                    textposition='outside'
-                ))
-                fig.update_layout(
-                    height=400,
-                    margin=dict(l=0, r=0, t=0, b=0),
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    xaxis=dict(showgrid=False),
-                    yaxis=dict(showgrid=False, tickformat=',.0f')
-                )
-                st.plotly_chart(fig, use_container_width=True)
-
-            with tab4:
-                create_section_header("Financial Ratios")
-                st.dataframe(
-                    ratios_data[['Current Ratio', 'ROE', 'ROA', 'Debt Ratio']].applymap(lambda x: f"{x:.2f}"),
-                    use_container_width=True
-                )
-
-            # Modern download section
-            st.markdown("---")
-            col1, col2, col3 = st.columns([1, 2, 1])
-            with col2:
-                if st.button("📥 Download Complete Report", type="primary", use_container_width=True):
-                    # Your existing download logic
-                    st.success("Report downloaded successfully!")
-
+        response = requests.get(api_endpoint, params=params)
+        response.raise_for_status()
+        data = response.json()
+        if not data: # Check if the list is empty
+            return None
+        data = data[0]
+        return {
+            'Name': data.get('companyName'),
+            'Exchange': data.get('exchangeShortName'),
+            'Currency': data.get('currency'),
+            'Country': data.get('country'),
+            'Sector': data.get('sector'),
+            'Market Cap': data.get('mktCap'),
+            'Price': data.get('price'),
+            'Beta': data.get('beta'),
+            'Price change': data.get('changes'),
+            'Website': data.get('website'),
+            'Image': data.get('image')
+        }
+    except requests.exceptions.RequestException as e:
+        st.error(f"Network error or invalid API response fetching company info: {e}")
+        return None
+    except (IndexError, KeyError) as e:
+        st.error(f"Data parsing error for company info. Ticker might be invalid or data is missing: {e}")
+        return None
     except Exception as e:
-        st.error("Unable to fetch data. Please check the symbol and try again.")
+        st.error(f"An unexpected error occurred while fetching company info: {e}")
+        return None
 
-else:
-    # Modern welcome screen
+
+@st.cache_data(ttl=60*60*24*30)
+def get_stock_price(symbol: str) -> pd.DataFrame:
+    """Returns monthly stock prices for the last 5 years"""
+    api_endpoint = 'https://www.alphavantage.co/query'
+    params = {
+        'function': 'TIME_SERIES_MONTHLY_ADJUSTED',
+        'symbol': symbol,
+        'apikey': ALPHA_API_KEY[0], # Access the key from the list
+    }
+    try:
+        response = requests.get(api_endpoint, params=params)
+        response.raise_for_status()
+        data = response.json()
+        if 'Monthly Adjusted Time Series' not in data:
+            st.warning("Alpha Vantage API rate limit likely hit or no data for this symbol. Try again in a minute.")
+            return None
+        
+        df = pd.DataFrame.from_dict(data['Monthly Adjusted Time Series'], orient='index')
+        df.index = pd.to_datetime(df.index)
+        df = df[:12*5] # Get last 5 years (60 months)
+        df = df[['4. close']].astype(float)
+        df = df.rename(columns={'4. close': 'Price'})
+        # Sort index in ascending order for plotting
+        df = df.sort_index()
+        return df
+    except requests.exceptions.RequestException as e:
+        st.error(f"Network error or invalid API response fetching stock price: {e}")
+        return None
+    except KeyError as e:
+        st.error(f"Data parsing error for stock price. Ticker might be invalid or data is missing: {e}")
+        return None
+    except Exception as e:
+        st.error(f"An unexpected error occurred while fetching stock price: {e}")
+        return None
+
+
+@st.cache_data(ttl=60*60*24*30)
+def get_income_statement(symbol: str) -> pd.DataFrame:
+    """Retrieves income statement data"""
+    api_endpoint = f'https://financialmodelingprep.com/api/v3/income-statement/{symbol}/'
+    params = {'limit': 5, 'apikey': FMP_API_KEY[0]}
+    try:
+        income_statement_data = []
+        response = requests.get(api_endpoint, params=params)
+        response.raise_for_status()
+        response_data = response.json()
+        if not response_data:
+            return None
+        for report in response_data:
+            year = report.get('calendarYear')
+            if year: # Ensure year exists
+                income_statement_data.append({
+                    'Year': year,
+                    'Revenue': report.get('revenue'),
+                    '(-) Cost of Revenue': report.get('costOfRevenue'),
+                    '= Gross Profit': report.get('grossProfit'),
+                    '(-) Operating Expense': report.get('operatingExpenses'),
+                    '= Operating Income': report.get('operatingIncome'),
+                    '(+-) Other Income/Expenses': report.get('totalOtherIncomeExpensesNet'),
+                    '= Income Before Tax': report.get('incomeBeforeTax'),
+                    '(+-) Tax Income/Expense': report.get('incomeTaxExpense'),
+                    '= Net Income': report.get('netIncome'),
+                })
+        # Sort by year in descending order for recent years first in table
+        df = pd.DataFrame(income_statement_data).set_index('Year').sort_index(ascending=False)
+        return df
+    except requests.exceptions.RequestException as e:
+        st.error(f"Network error or invalid API response fetching income statement: {e}")
+        return None
+    except (KeyError, TypeError) as e:
+        st.error(f"Data parsing error for income statement. Ticker might be invalid or data is missing: {e}")
+        return None
+    except Exception as e:
+        st.error(f"An unexpected error occurred while fetching income statement: {e}")
+        return None
+
+
+@st.cache_data(ttl=60*60*24*30)
+def get_balance_sheet(symbol: str) -> pd.DataFrame:
+    """Retrieves balance sheet data"""
+    api_endpoint = f'https://financialmodelingprep.com/api/v3/balance-sheet-statement/{symbol}'
+    params = {'limit': 5, 'apikey': FMP_API_KEY[0]}
+    try:
+        balance_sheet_data = []
+        response = requests.get(api_endpoint, params=params)
+        response.raise_for_status()
+        response_data = response.json()
+        if not response_data:
+            return None
+        for report in response_data:
+            year = report.get('calendarYear')
+            if year:
+                balance_sheet_data.append({
+                    'Year': year,
+                    'Assets': report.get('totalAssets'),
+                    'Current Assets': report.get('totalCurrentAssets'),
+                    'Non-Current Assets': report.get('totalNonCurrentAssets'),
+                    'Current Liabilities': report.get('totalCurrentLiabilities'),
+                    'Non-Current Liabilities': report.get('totalNonCurrentLiabilities'),
+                    'Liabilities': report.get('totalLiabilities'),
+                    'Equity': report.get('totalEquity')
+                })
+        df = pd.DataFrame(balance_sheet_data).set_index('Year').sort_index(ascending=False)
+        return df
+    except requests.exceptions.RequestException as e:
+        st.error(f"Network error or invalid API response fetching balance sheet: {e}")
+        return None
+    except (KeyError, TypeError) as e:
+        st.error(f"Data parsing error for balance sheet. Ticker might be invalid or data is missing: {e}")
+        return None
+    except Exception as e:
+        st.error(f"An unexpected error occurred while fetching balance sheet: {e}")
+        return None
+
+
+@st.cache_data(ttl=60*60*24*30)
+def get_cash_flow(symbol: str) -> pd.DataFrame:
+    """Retrieve cash flow data"""
+    api_endpoint = f'https://financialmodelingprep.com/api/v3/cash-flow-statement/{symbol}'
+    params = {'limit': 5, 'apikey': FMP_API_KEY[0]}
+    try:
+        cashflow_data = []
+        response = requests.get(api_endpoint, params=params)
+        response.raise_for_status()
+        response_data = response.json()
+        if not response_data:
+            return None
+        for report in response_data:
+            year = report.get('date').split('-')[0] if report.get('date') else None
+            if year:
+                cashflow_data.append({
+                    'Year': year,
+                    "Cash flows from operating activities": report.get('netCashProvidedByOperatingActivities'),
+                    'Cash flows from investing activities': report.get('netCashUsedForInvestingActivites'),
+                    'Cash flows from financing activities': report.get('netCashUsedProvidedByFinancingActivities'),
+                    'Free cash flow': report.get('freeCashFlow')
+                })
+        df = pd.DataFrame(cashflow_data).set_index('Year').sort_index(ascending=False)
+        return df
+    except requests.exceptions.RequestException as e:
+        st.error(f"Network error or invalid API response fetching cash flow: {e}")
+        return None
+    except (KeyError, TypeError) as e:
+        st.error(f"Data parsing error for cash flow. Ticker might be invalid or data is missing: {e}")
+        return None
+    except Exception as e:
+        st.error(f"An unexpected error occurred while fetching cash flow: {e}")
+        return None
+
+
+@st.cache_data(ttl=60*60*24*30)
+def get_key_metrics(symbol: str) -> pd.DataFrame:
+    """Returns key financial metrics"""
+    api_endpoint = f'https://financialmodelingprep.com/api/v3/key-metrics/{symbol}'
+    params = {'limit': 5, 'apikey': FMP_API_KEY[0]}
+    try:
+        metrics_data = []
+        response = requests.get(api_endpoint, params=params)
+        response.raise_for_status()
+        response_data = response.json()
+        if not response_data:
+            return None
+        for report in response_data:
+            year = report.get('date').split('-')[0] if report.get('date') else None
+            if year:
+                metrics_data.append({
+                    'Year': year,
+                    "Market Cap": report.get('marketCap'),
+                    'Working Capital': report.get('workingCapital'),
+                    'D/E ratio': report.get('debtToEquity'),
+                    'P/E Ratio': report.get('peRatio'),
+                    'ROE': report.get('roe'),
+                    'Dividend Yield': report.get('dividendYield')
+                })
+        df = pd.DataFrame(metrics_data).set_index('Year').sort_index(ascending=False)
+        return df
+    except requests.exceptions.RequestException as e:
+        st.error(f"Network error or invalid API response fetching key metrics: {e}")
+        return None
+    except (KeyError, TypeError) as e:
+        st.error(f"Data parsing error for key metrics. Ticker might be invalid or data is missing: {e}")
+        return None
+    except Exception as e:
+        st.error(f"An unexpected error occurred while fetching key metrics: {e}")
+        return None
+
+
+@st.cache_data(ttl=60*60*24*30)
+def get_financial_ratios(symbol: str) -> pd.DataFrame:
+    """Fetches financial ratios"""
+    api_endpoint = f'https://financialmodelingprep.com/api/v3/ratios/{symbol}'
+    params = {'limit': 5, 'apikey': FMP_API_KEY[0]}
+    try:
+        ratios_data = []
+        response = requests.get(api_endpoint, params=params)
+        response.raise_for_status()
+        response_data = response.json()
+        if not response_data:
+            return None
+        for report in response_data:
+            year = report.get('date').split('-')[0] if report.get('date') else None
+            if year:
+                ratios_data.append({
+                    'Year': year,
+                    'Current Ratio': report.get('currentRatio'),
+                    'Quick Ratio': report.get('quickRatio'),
+                    'Cash Ratio': report.get('cashRatio'),
+                    'Days of Sales Outstanding': report.get('daysOfSalesOutstanding'),
+                    'Days of Inventory Outstanding': report.get('daysOfInventoryOutstanding'),
+                    'Operating Cycle': report.get('operatingCycle'),
+                    'Days of Payables Outstanding': report.get('daysOfPayablesOutstanding'),
+                    'Cash Conversion Cycle': report.get('cashConversionCycle'),
+                    'Gross Profit Margin': report.get('grossProfitMargin'),
+                    'Operating Profit Margin': report.get('operatingProfitMargin'),
+                    'Pretax Profit Margin': report.get('pretaxProfitMargin'),
+                    'Net Profit Margin': report.get('netProfitMargin'),
+                    'Effective Tax Rate': report.get('effectiveTaxRate'),
+                    'Return on Assets': report.get('returnOnAssets'),
+                    'Return on Equity': report.get('returnOnEquity'),
+                    'Return on Capital Employed': report.get('returnOnCapitalEmployed'),
+                    'Net Income per EBT': report.get('netIncomePerEBT'),
+                    'EBT per EBIT': report.get('ebtPerEbit'),
+                    'EBIT per Revenue': report.get('ebitPerRevenue'),
+                    'Debt Ratio': report.get('debtRatio'),
+                    'Debt Equity Ratio': report.get('debtEquityRatio'),
+                    'Long-term Debt to Capitalization': report.get('longTermDebtToCapitalization'),
+                    'Total Debt to Capitalization': report.get('totalDebtToCapitalization'),
+                    'Interest Coverage': report.get('interestCoverage'),
+                    'Cash Flow to Debt Ratio': report.get('cashFlowToDebtRatio'),
+                    'Company Equity Multiplier': report.get('companyEquityMultiplier'),
+                    'Receivables Turnover': report.get('receivablesTurnover'),
+                    'Payables Turnover': report.get('payablesTurnover'),
+                    'Inventory Turnover': report.get('inventoryTurnover'),
+                    'Fixed Asset Turnover': report.get('fixedAssetTurnover'),
+                    'Asset Turnover': report.get('assetTurnover'),
+                    'Operating Cash Flow per Share': report.get('operatingCashFlowPerShare'),
+                    'Free Cash Flow per Share': report.get('freeCashFlowPerShare'),
+                    'Cash per Share': report.get('cashPerShare'),
+                    'Payout Ratio': report.get('payoutRatio'),
+                    'Operating Cash Flow Sales Ratio': report.get('operatingCashFlowSalesRatio'),
+                    'Free Cash Flow Operating Cash Flow Ratio': report.get('freeCashFlowOperatingCashFlowRatio'),
+                    'Cash Flow Coverage Ratios': report.get('cashFlowCoverageRatios'),
+                    'Price to Book Value Ratio': report.get('priceToBookRatio'),
+                    'Price to Earnings Ratio': report.get('priceEarningsRatio'),
+                    'Price to Sales Ratio': report.get('priceToSalesRatio'),
+                    'Dividend Yield': report.get('dividendYield'),
+                    'Enterprise Value to EBITDA': report.get('enterpriseValueMultiple'),
+                    'Price to Fair Value': report.get('priceFairValue')
+                })
+        df = pd.DataFrame(ratios_data).set_index('Year').sort_index(ascending=False)
+        return df
+    except requests.exceptions.RequestException as e:
+        st.error(f"Network error or invalid API response fetching financial ratios: {e}")
+        return None
+    except (KeyError, TypeError) as e:
+        st.error(f"Data parsing error for financial ratios. Ticker might be invalid or data is missing: {e}")
+        return None
+    except Exception as e:
+        st.error(f"An unexpected error occurred while fetching financial ratios: {e}")
+        return None
+
+
+
+def main():
+    """Main application function"""
+    # Apply modern CSS styling
+    apply_modern_css()
+
+    # Header
     st.markdown("""
-    <div style="text-align: center; padding: 4rem 2rem;">
-        <h2 style="color: var(--text-primary); margin-bottom: 1rem;">Welcome to Modern Financial Analytics</h2>
-        <p style="color: var(--text-secondary); font-size: 1.2rem; margin-bottom: 2rem;">
-            Enter a stock symbol above to begin your analysis
+    <div class="main-header">
+        <h1>📈 Financial Dashboard</h1>
+        <p style="text-align: center; color: #666666; font-size: 1.1rem;">
+            Professional financial analysis with real-time data
         </p>
-        <div style="display: flex; justify-content: center; gap: 1rem; flex-wrap: wrap;">
-            <span style="background: var(--bg-primary); padding: 0.5rem 1rem; border-radius: 2rem; border: 1px solid var(--border-color);">AAPL</span>
-            <span style="background: var(--bg-primary); padding: 0.5rem 1rem; border-radius: 2rem; border: 1px solid var(--border-color);">MSFT</span>
-            <span style="background: var(--bg-primary); padding: 0.5rem 1rem; border-radius: 2rem; border: 1px solid var(--border-color);">GOOGL</span>
-            <span style="background: var(--bg-primary); padding: 0.5rem 1rem; border-radius: 2rem; border: 1px solid var(--border-color);">TSLA</span>
-        </div>
     </div>
     """, unsafe_allow_html=True)
+
+    # Initialize session state
+    if 'btn_clicked' not in st.session_state:
+        st.session_state['btn_clicked'] = False
+
+    def callback():
+        st.session_state['btn_clicked'] = True
+
+    # Input section
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        symbol_input = st.text_input(
+            "",
+            placeholder="Enter stock ticker (e.g., AAPL, TSLA, MSFT)",
+            help="Enter a valid stock symbol to analyze"
+        ).upper()
+
+        if st.button('🔍 Analyze Stock', on_click=callback, use_container_width=True):
+            pass
+
+    # Main dashboard
+    if st.session_state['btn_clicked']:
+        if not symbol_input:
+            st.warning('⚠️ Please enter a stock ticker symbol.')
+            return
+
+        try:
+            # Fetch data with loading indicators
+            with st.spinner('📊 Fetching financial data...'):
+                company_data = get_company_info(symbol_input)
+                if company_data is None:
+                    st.error('❌ Failed to retrieve company data. Please check the ticker symbol.')
+                    return
+
+                metrics_data = get_key_metrics(symbol_input)
+                income_data = get_income_statement(symbol_input)
+                performance_data = get_stock_price(symbol_input)
+                ratios_data = get_financial_ratios(symbol_input)
+                balance_sheet_data = get_balance_sheet(symbol_input)
+                cashflow_data = get_cash_flow(symbol_input)
+            
+            # --- Check if essential data is available before proceeding ---
+            if metrics_data is None or metrics_data.empty:
+                st.warning("Could not retrieve key metrics for this symbol. Some dashboard elements might be empty.")
+            if income_data is None or income_data.empty:
+                st.warning("Could not retrieve income statement for this symbol.")
+            if performance_data is None or performance_data.empty:
+                st.warning("Could not retrieve historical stock prices for this symbol. Chart will not be displayed.")
+            if ratios_data is None or ratios_data.empty:
+                st.warning("Could not retrieve financial ratios for this symbol.")
+            if balance_sheet_data is None or balance_sheet_data.empty:
+                st.warning("Could not retrieve balance sheet for this symbol.")
+            if cashflow_data is None or cashflow_data.empty:
+                st.warning("Could not retrieve cash flow statement for this symbol.")
+
+            # Company Information Header
+            st.markdown("### 🏢 Company Overview")
+            col1, col2 = st.columns([4, 1])
+
+            with col1:
+                st.markdown(f"""
+                <div class="company-info">
+                    <div class="company-name">{company_data.get('Name', 'N/A')}</div>
+                    <div style="text-align: center; color: #666666; margin-bottom: 1rem;">
+                        {company_data.get('Sector', 'N/A')} • {company_data.get('Exchange', 'N/A')} • {company_data.get('Country', 'N/A')}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            with col2:
+                # Ensure image URL is valid before rendering
+                image_url = company_data.get('Image')
+                website_url = company_data.get('Website')
+                logo_html = ""
+                if image_url:
+                    logo_html = f"""
+                    <div class="company-logo">
+                        <a href="{website_url if website_url else '#'}" target="_blank">
+                            <img src="{image_url}" alt="{company_data.get('Name', 'Logo')}"
+                                 style="height: 80px; width: 100px; object-fit: contain;">
+                        </a>
+                    </div>
+                    """
+
+    
+                st.markdown(logo_html, unsafe_allow_html=True)
+
+            # Key Metrics Row
+            st.markdown("### 📊 Key Metrics")
+            col1, col2, col3, col4 = st.columns(4)
+
+            with col1:
+                st.metric(
+                    "💰 Stock Price",
+                    f"${company_data.get('Price', 0.0):.2f}",
+                    f"{company_data.get('Price change', 0.0):.2f}"
+                )
+
+            with col2:
+                if metrics_data is not None and not metrics_data.empty and 'Market Cap' in metrics_data.columns:
+                    st.metric(
+                        "🏦 Market Cap",
+                        millify(metrics_data['Market Cap'][0], precision=2),
+                        get_delta(metrics_data, 'Market Cap')
+                    )
+                else:
+                    st.metric("🏦 Market Cap", "N/A", "N/A")
+
+
+            with col3:
+                if metrics_data is not None and not metrics_data.empty and 'Working Capital' in metrics_data.columns:
+                    st.metric(
+                        "💼 Working Capital",
+                        millify(metrics_data['Working Capital'][0], precision=2),
+                        get_delta(metrics_data, 'Working Capital')
+                    )
+                else:
+                    st.metric("💼 Working Capital", "N/A", "N/A")
+
+
+            with col4:
+                if metrics_data is not None and not metrics_data.empty and 'P/E Ratio' in metrics_data.columns:
+                    st.metric(
+                        "📈 P/E Ratio",
+                        f"{metrics_data['P/E Ratio'][0]:.2f}",
+                        get_delta(metrics_data, 'P/E Ratio')
+                    )
+                else:
+                    st.metric("📈 P/E Ratio", "N/A", "N/A")
+
+
+            # Financial Performance Chart
+            st.markdown("### 💹 Stock Performance (5-Year Trend)")
+            with st.container():
+                st.markdown('<div class="chart-container">', unsafe_allow_html=True)
+                if performance_data is not None and not performance_data.empty:
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(
+                        x=performance_data.index,
+                        y=performance_data['Price'],
+                        mode='lines',
+                        name='Stock Price',
+                        line=dict(color='#667eea', width=3),
+                        fill='tozeroy',
+                        fillcolor='rgba(102, 126, 234, 0.1)'
+                    ))
+                    fig.update_layout(
+                        title='Monthly Adjusted Close Price',
+                        xaxis_title='Date',
+                        yaxis_title=f"Price ({company_data.get('Currency', 'USD')})",
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        font=dict(color='#1a1a1a'),
+                        xaxis=dict(gridcolor='rgba(102, 126, 234, 0.2)'),
+                        yaxis=dict(gridcolor='rgba(102, 126, 234, 0.2)'),
+                        hovermode='x unified'
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No historical stock price data available for charting.")
+                st.markdown('</div>', unsafe_allow_html=True)
+
+            # Financial Statements
+            st.markdown("### 📄 Financial Statements")
+
+            def format_statement(df):
+                """Formats financial statement DataFrame for display"""
+                if df is None or df.empty:
+                    return pd.DataFrame().T # Return an empty styled dataframe
+                formatted_df = df.T.applymap(
+                    lambda x: millify(x, precision=2) if isinstance(x, (int, float)) and abs(x) >= 1000 else f'{x:,.2f}' if isinstance(x, (int, float)) else x
+                )
+                return formatted_df.style.applymap(color_highlighter)
+
+
+            def to_csv(df):
+                """Converts DataFrame to CSV for download"""
+                if df is None:
+                    return b"" # Return empty bytes if df is None
+                output = BytesIO()
+                df.to_csv(output, index=True, encoding='utf-8')
+                return output.getvalue()
+
+            tab1, tab2, tab3 = st.tabs(["Income Statement", "Balance Sheet", "Cash Flow"])
+
+            with tab1:
+                st.markdown(create_info_card("Income Statement"), unsafe_allow_html=True)
+                if income_data is not None and not income_data.empty:
+                    st.dataframe(format_statement(income_data), use_container_width=True)
+                    st.download_button(
+                        label="📥 Download as CSV",
+                        data=to_csv(income_data),
+                        file_name=f'{symbol_input}_income_statement.csv',
+                        mime='text/csv',
+                    )
+                else:
+                    st.info("Income Statement data not available.")
+
+            with tab2:
+                st.markdown(create_info_card("Balance Sheet"), unsafe_allow_html=True)
+                if balance_sheet_data is not None and not balance_sheet_data.empty:
+                    st.dataframe(format_statement(balance_sheet_data), use_container_width=True)
+                    st.download_button(
+                        label="📥 Download as CSV",
+                        data=to_csv(balance_sheet_data),
+                        file_name=f'{symbol_input}_balance_sheet.csv',
+                        mime='text/csv',
+                    )
+                else:
+                    st.info("Balance Sheet data not available.")
+
+            with tab3:
+                st.markdown(create_info_card("Cash Flow Statement"), unsafe_allow_html=True)
+                if cashflow_data is not None and not cashflow_data.empty:
+                    st.dataframe(format_statement(cashflow_data), use_container_width=True)
+                    st.download_button(
+                        label="📥 Download as CSV",
+                        data=to_csv(cashflow_data),
+                        file_name=f'{symbol_input}_cash_flow.csv',
+                        mime='text/csv',
+                    )
+                else:
+                    st.info("Cash Flow Statement data not available.")
+
+            # Financial Ratios
+            st.markdown("### 🧮 Financial Ratios Analysis")
+
+            if ratios_data is not None and not ratios_data.empty:
+                ratio_categories = {
+                    "Profitability": ['Gross Profit Margin', 'Operating Profit Margin', 'Net Profit Margin', 'Return on Assets', 'Return on Equity'],
+                    "Liquidity": ['Current Ratio', 'Quick Ratio', 'Cash Ratio'],
+                    "Solvency": ['Debt Ratio', 'Debt Equity Ratio', 'Interest Coverage'],
+                    "Efficiency": ['Asset Turnover', 'Inventory Turnover', 'Operating Cycle', 'Cash Conversion Cycle'],
+                    "Valuation": ['Price to Earnings Ratio', 'Price to Book Value Ratio', 'Price to Sales Ratio', 'Dividend Yield']
+                }
+
+                # Filter categories to only include ratios present in the fetched data
+                available_categories = {}
+                for category, ratios in ratio_categories.items():
+                    available_ratios = [r for r in ratios if r in ratios_data.columns]
+                    if available_ratios:
+                        available_categories[category] = available_ratios
+
+                if not available_categories:
+                    st.info("No financial ratios available for display under any category.")
+                else:
+                    col1, col2 = st.columns([1, 3])
+                    with col1:
+                        selected_category = st.selectbox(
+                            "Select Ratio Category",
+                            options=list(available_categories.keys()),
+                            index=0,
+                            label_visibility="collapsed"
+                        )
+
+                    st.markdown(f"#### {selected_category} Ratios")
+                    filtered_ratios = ratios_data[available_categories[selected_category]].T
+                    st.dataframe(
+                        filtered_ratios.style.format("{:.2f}").applymap(color_highlighter),
+                        use_container_width=True
+                    )
+
+                    st.download_button(
+                        label="📥 Download All Ratios as CSV",
+                        data=to_csv(ratios_data),
+                        file_name=f'{symbol_input}_financial_ratios.csv',
+                        mime='text/csv',
+                        use_container_width=True
+                    )
+            else:
+                st.info("Financial Ratios data not available for this symbol.")
+
+        except Exception as e:
+            st.error(f"An unexpected error occurred during dashboard generation: {e}")
+            st.warning("Please verify the ticker symbol or try again later.")
+
+    # Custom Footer
+    st.markdown("""
+    <div class="custom-footer">
+        Developed with ❤️ using Streamlit & Python | Data from Financial Modeling Prep & Alpha Vantage
+    </div>
+    """, unsafe_allow_html=True)
+
+if __name__ == '__main__':
+    main()
