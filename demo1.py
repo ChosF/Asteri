@@ -1320,7 +1320,7 @@ def main():
     st.markdown(
         """
     <div class="custom-footer">
-        Developed with ❤️ using Streamlit & Python | Data from Financial Modeling Prep & Alpha Vantage
+        No me mates Vélez
     </div>
     """,
         unsafe_allow_html=True,
