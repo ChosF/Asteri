@@ -22,6 +22,9 @@ from binance.exceptions import BinanceAPIException
 import supabase
 from supabase import create_client, Client as SupabaseClient
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # Configure the app page
 st.set_page_config(
     page_title="Financial Dashboard",
