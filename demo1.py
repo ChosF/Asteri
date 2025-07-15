@@ -20,6 +20,7 @@ import bcrypt
 from binance.client import Client as BinanceClient
 from binance.exceptions import BinanceAPIException
 import supabase
+import logging
 from supabase import create_client, Client as SupabaseClient
 
 logging.basicConfig(level=logging.INFO)
