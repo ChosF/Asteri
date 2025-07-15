@@ -6,3 +6,7 @@ plotly
 millify
 XlsxWriter
 python-binance
+supabase
+bcrypt
+hmac
+hashlib
