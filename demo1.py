@@ -502,43 +502,50 @@ def show_auth_page():
 def get_binance_client(api_key: str, api_secret: str):
     """
     Get Binance client, routing through a free Mexican HTTPS proxy
-    to bypass US region restrictions.
+    (fetched from ProxyScrape) to bypass US-region restrictions.
     """
-    # --- MEXICO HTTPS PROXY POOL ---
-    # These are example free MX proxies gathered from sites like ProxyNova
-    # and IPSpeed. They change frequently—swap them out if they go offline.
-    mexico_proxies = [
-        "http://152.70.162.218:8080",  # ProxyNova MX (HTTP CONNECT → HTTPS)
-        "http://190.121.102.138:3128", # IPSpeed MX
-        "http://201.220.50.254:8080",  # proxy-list.org MX
-    ]
+    import requests
 
-    # randomly pick one for each runtime (rotate on cache miss)
-    proxy_url = random.choice(mexico_proxies)
-    proxies = {
-        "https": proxy_url
-    }
+    # --- PROXY CONFIGURATION ---
+    # Fetch a list of free Mexican HTTPS proxies from ProxyScrape
+    proxy_api = (
+        "https://api.proxyscrape.com/?"
+        "request=displayproxies&proxytype=http"
+        "&country=MX&ssl=yes&timeout=10000"
+    )
+    try:
+        resp = requests.get(proxy_api, timeout=5)
+        resp.raise_for_status()
+        proxy_list = resp.text.strip().splitlines()
+        if proxy_list:
+            # pick the first proxy in host:port format
+            proxy = proxy_list[0].strip()
+            proxies = {"https": f"http://{proxy}"}
+        else:
+            proxies = {}
+    except Exception:
+        # if fetching fails, fall back to no proxy (may be blocked)
+        proxies = {}
 
-    requests_params = {"proxies": proxies}
+    requests_params = {"proxies": proxies} if proxies else None
 
     try:
-        # force tld="com" for global Binance, pass our proxy settings
+        # Initialize client against global Binance.com endpoint
         client = BinanceClient(
             api_key,
             api_secret,
             tld="com",
             requests_params=requests_params
         )
-        # quick ping to verify proxy+auth are working
+        # verify connectivity
         client.ping()
         return client
-
     except Exception as e:
-        st.error(f"Failed to connect via proxy {proxy_url}: {e}")
-        if "proxy" in str(e).lower() or "connect" in str(e).lower():
+        st.error(f"Failed to connect to Binance: {e}")
+        if proxies:
             st.warning(
-                "Check that your chosen proxy is up and supports HTTPS "
-                "CONNECT. Swap the IP/port if needed."
+                "Tried using proxy "
+                f"{proxies.get('https')} – check that it's still alive."
             )
         return None
 
