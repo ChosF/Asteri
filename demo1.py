@@ -87,59 +87,34 @@ def apply_modern_css():
             margin: 0 auto;
         }
 
-        /* Header styling */
-        .main-header {
+        /* Sticky Header styling */
+        .sticky-header {
+            position: sticky;
+            top: 0;
+            z-index: 1000;
             background: var(--glass-bg);
             backdrop-filter: blur(16px);
             -webkit-backdrop-filter: blur(16px);
-            border: 1px solid var(--glass-border);
-            border-radius: var(--border-radius);
-            padding: 2rem;
+            border-bottom: 1px solid var(--glass-border);
+            padding: 1rem 2rem;
             margin-bottom: 2rem;
             box-shadow: var(--shadow-light);
             transition: var(--transition);
-            z-index: 999; /* Ensure it's above other content but below sticky */
-        }
-
-        .main-header:hover {
-            transform: translateY(-2px);
-            box-shadow: var(--shadow-hover);
-        }
-
-        .main-header h1 {
-            color: var(--text-primary);
-            font-weight: 700;
-            font-size: 2.5rem;
-            margin-bottom: 0.5rem;
-            text-align: center;
-            transition: var(--transition);
-        }
-
-        /* Sticky Header Styling */
-        @keyframes slideDown {
-            from { transform: translateY(-100%); }
-            to { transform: translateY(0); }
-        }
-
-        .sticky-header {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            border-radius: 0;
-            margin-bottom: 0;
-            padding: 1rem 2rem;
-            animation: slideDown 0.5s ease-in-out;
-            z-index: 1000;
         }
 
         .sticky-header h1 {
-            font-size: 1.8rem;
-            margin-bottom: 0;
+            color: var(--text-primary);
+            font-weight: 700;
+            font-size: 2.2rem;
+            margin-bottom: 0.25rem;
+            text-align: center;
         }
 
         .sticky-header p {
-            display: none; /* Hide paragraph in sticky mode */
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 1rem;
+            margin: 0;
         }
 
 
@@ -202,14 +177,14 @@ def apply_modern_css():
         /* Company info card */
         .company-info {
             display: flex;
-            justify-content: space-between;
             align-items: center;
+            justify-content: space-between;
             background: var(--glass-bg);
             backdrop-filter: blur(16px);
             -webkit-backdrop-filter: blur(16px);
             border: 1px solid var(--glass-border);
             border-radius: var(--border-radius);
-            padding: 1.5rem 2rem;
+            padding: 1.5rem;
             margin-bottom: 2rem;
             box-shadow: var(--shadow-light);
             transition: var(--transition);
@@ -220,27 +195,32 @@ def apply_modern_css():
             box-shadow: var(--shadow-hover);
         }
 
+        .company-details {
+            flex-grow: 1;
+            text-align: left;
+        }
+
         .company-name {
             font-size: 1.8rem;
             font-weight: 700;
             color: var(--text-primary);
-            margin-bottom: 0.25rem;
-            text-align: left;
+            margin-bottom: 0.5rem;
         }
 
         .company-logo {
+            flex-shrink: 0;
             margin-left: 1.5rem;
         }
 
         .company-logo img {
-            height: 60px;
-            width: 60px;
-            object-fit: contain;
             border-radius: 12px;
-            background: rgba(255, 255, 255, 0.7);
-            padding: 5px;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
             transition: var(--transition);
+            height: 80px;
+            width: 80px;
+            object-fit: contain;
+            background-color: white; /* Ensure logo has a solid background */
+            padding: 5px;
         }
 
         .company-logo img:hover {
@@ -402,8 +382,20 @@ def apply_modern_css():
                 padding: 1rem 0.5rem;
             }
 
-            .main-header h1 {
-                font-size: 2rem;
+            .sticky-header h1 {
+                font-size: 1.8rem;
+            }
+
+            .company-info {
+                flex-direction: column;
+                text-align: center;
+            }
+            .company-details {
+                text-align: center;
+            }
+            .company-logo {
+                margin-left: 0;
+                margin-top: 1rem;
             }
 
             .glass-card {
@@ -437,43 +429,12 @@ def apply_modern_css():
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
             border-top: 1px solid var(--glass-border);
-            padding: 0.5rem; /* Thinner footer */
+            padding: 0.5rem; /* Thinner padding */
             text-align: center;
             color: var(--text-secondary);
-            font-size: 0.9rem;
-            z-index: 1001;
+            font-size: 0.8rem; /* Smaller font size */
         }
     </style>
-
-    <script>
-        document.addEventListener("DOMContentLoaded", function() {
-            const header = document.querySelector('.main-header');
-            if (!header) return;
-
-            // Create a placeholder to prevent content from jumping when header becomes sticky
-            const placeholder = document.createElement('div');
-            placeholder.style.display = 'none';
-            header.parentNode.insertBefore(placeholder, header);
-
-            const stickyPoint = header.offsetTop;
-
-            window.addEventListener('scroll', function() {
-                if (window.pageYOffset > stickyPoint) {
-                    if (!header.classList.contains('sticky-header')) {
-                        placeholder.style.height = header.offsetHeight + 'px';
-                        placeholder.style.marginBottom = getComputedStyle(header).marginBottom;
-                        placeholder.style.display = 'block';
-                        header.classList.add('sticky-header');
-                    }
-                } else {
-                    if (header.classList.contains('sticky-header')) {
-                        header.classList.remove('sticky-header');
-                        placeholder.style.display = 'none';
-                    }
-                }
-            });
-        });
-    </script>
     """
     st.markdown(modern_css, unsafe_allow_html=True)
 
@@ -1015,11 +976,9 @@ def main():
     # Header
     st.markdown(
         """
-    <div class="main-header">
+    <div class="sticky-header">
         <h1>📈 Financial Dashboard</h1>
-        <p style="text-align: center; color: #666666; font-size: 1.1rem;">
-            Professional financial analysis with real-time data
-        </p>
+        <p>Professional financial analysis with real-time data</p>
     </div>
     """,
         unsafe_allow_html=True,
@@ -1094,30 +1053,37 @@ def main():
             # Company Information Header
             st.markdown("### 🏢 Company Overview")
 
+            # Prepare company details and logo for the card
+            company_name = company_data.get('Name', 'N/A')
+            sector = company_data.get('Sector', 'N/A')
+            exchange = company_data.get('Exchange', 'N/A')
+            country = company_data.get('Country', 'N/A')
             image_url = company_data.get("Image")
-            website_url = company_data.get("Website")
+            website_url = company_data.get("Website", "#")
+
             logo_html = ""
             if image_url:
                 logo_html = f"""
                 <div class="company-logo">
-                    <a href="{website_url if website_url else '#'}" target="_blank">
-                        <img src="{image_url}" alt="{company_data.get('Name', 'Logo')}">
+                    <a href="{website_url}" target="_blank">
+                        <img src="{image_url}" alt="{company_name} Logo">
                     </a>
                 </div>
                 """
 
             company_info_html = f"""
             <div class="company-info">
-                <div>
-                    <div class="company-name">{company_data.get('Name', 'N/A')}</div>
+                <div class="company-details">
+                    <div class="company-name">{company_name}</div>
                     <div style="color: var(--text-secondary);">
-                        {company_data.get('Sector', 'N/A')} • {company_data.get('Exchange', 'N/A')} • {company_data.get('Country', 'N/A')}
+                        {sector} • {exchange} • {country}
                     </div>
                 </div>
                 {logo_html}
             </div>
             """
             st.markdown(company_info_html, unsafe_allow_html=True)
+
 
             # Key Metrics Row
             st.markdown("### 📊 Key Metrics")
