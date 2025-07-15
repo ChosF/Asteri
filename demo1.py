@@ -103,8 +103,8 @@ def color_highlighter(val: str) -> str:
 # =============================================================================
 
 # Load API keys from Streamlit secrets
-FMP_API_KEY = st.secrets["ZPODKN7Q87COJ0IR"]
-ALPHA_API_KEY = st.secrets["OoJcYpvMo94etCgLpr1s6TABcmhr7AWT"]
+FMP_API_KEY = ["ZPODKN7Q87COJ0IR"]
+ALPHA_API_KEY = ["OoJcYpvMo94etCgLpr1s6TABcmhr7AWT"]
 
 def get_company_info(symbol: str) -> dict:
     """
