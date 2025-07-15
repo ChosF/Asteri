@@ -497,63 +497,58 @@ def show_auth_page():
 # DATA FUNCTIONS
 # =============================================================================
 
-
-import logging
-import random
-import requests
-from binance.client import Client as BinanceClient
-import streamlit as st
-
-# set up module-level logger
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 @st.cache_data(ttl=300)
 def get_binance_client(api_key: str, api_secret: str):
     """
-    Get Binance client using a Mexican HTTPS proxy (free list via ProxyScrape).
-    Tries up to 5 proxies before falling back to a direct connection.
-    Logs each attempt so you can verify which proxy (if any) was used.
+    Get Binance client using a Mexican HTTPS proxy.
+    Tries two free‐proxy sources, tests up to 10 proxies, and logs each attempt.
+    Falls back to a direct connection with a warning if none work.
     """
-    # 1) fetch free MX HTTPS proxy list
-    try:
-        resp = requests.get(
-            "https://api.proxyscrape.com/v2/"
-            "?request=getproxies&protocol=https&timeout=5000&country=mx&ssl=yes",
-            timeout=5
-        )
-        resp.raise_for_status()
-        all_proxies = [p.strip() for p in resp.text.splitlines() if p.strip()]
-        random.shuffle(all_proxies)
-    except Exception as e:
-        logger.warning(f"Could not retrieve proxy list: {e}")
-        all_proxies = []
+    proxy_sources = [
+        # ProxyScrape MX HTTPS list
+        "https://api.proxyscrape.com/v2/"
+        "?request=getproxies&protocol=https&timeout=5000&country=mx&ssl=yes",
+        # proxy‐list.download MX HTTPS list
+        "https://www.proxy-list.download/api/v1/get?type=https&country=MX"
+    ]
 
-    # 2) test up to 5 proxies
+    all_proxies = []
+    for url in proxy_sources:
+        try:
+            r = requests.get(url, timeout=5)
+            r.raise_for_status()
+            lines = [p.strip() for p in r.text.splitlines() if p.strip()]
+            logger.info(f"Fetched {len(lines)} candidates from {url}")
+            all_proxies.extend(lines)
+        except Exception as e:
+            logger.warning(f"Failed to fetch from {url}: {e}")
+
+    # dedupe & shuffle
+    all_proxies = list(dict.fromkeys(all_proxies))
+    random.shuffle(all_proxies)
+
     best_proxy = None
-    for candidate in all_proxies[:5]:
+    for candidate in all_proxies[:10]:
         proxies = {
             "http":  f"http://{candidate}",
             "https": f"https://{candidate}"
         }
-        logger.info(f"Testing proxy {candidate} ...")
+        logger.info(f"Testing proxy {candidate} …")
         try:
-            # ping Binance public endpoint via requests
-            r = requests.get(
+            resp = requests.get(
                 "https://api.binance.com/api/v3/ping",
                 proxies=proxies,
                 timeout=5
             )
-            if r.status_code == 200:
+            if resp.status_code == 200:
                 best_proxy = candidate
-                logger.info(f"Proxy {candidate} works!")
+                logger.info(f"✅ Proxy {candidate} works!")
                 break
             else:
-                logger.warning(f"Proxy {candidate} returned {r.status_code}")
+                logger.warning(f"✗ Proxy {candidate} returned {resp.status_code}")
         except Exception as e:
-            logger.warning(f"Proxy {candidate} failed: {e}")
+            logger.warning(f"✗ Proxy {candidate} failed: {e}")
 
-    # 3) build requests_params
     if best_proxy:
         requests_params = {
             "proxies": {
@@ -564,24 +559,24 @@ def get_binance_client(api_key: str, api_secret: str):
     else:
         requests_params = None
         logger.warning(
-            "No working MX proxy found; falling back to direct connection."
+            "⚠️ No working MX proxy found; falling back to direct connection."
         )
 
-    # 4) instantiate and verify BinanceClient
     try:
         client = BinanceClient(
-            api_key, api_secret,
-            tld="com",            # ensure global endpoint
+            api_key,
+            api_secret,
+            tld="com",               # global endpoint
             requests_params=requests_params
         )
-        client.ping()   # verify connection
+        client.ping()               # verify connectivity
         if best_proxy:
-            logger.info(f"Binance client connected via proxy {best_proxy}")
+            logger.info(f"🔗 Connected via proxy {best_proxy}")
         else:
-            logger.info("Binance client connected directly (no proxy)")
+            logger.info("🔗 Connected directly (no proxy)")
         return client
     except Exception as e:
-        logger.error(f"Failed to connect to Binance: {e}")
+        logger.error(f"❌ Failed to connect to Binance: {e}")
         return None
 
 
