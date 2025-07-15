@@ -8,4 +8,4 @@ XlsxWriter
 python-binance
 supabase
 bcrypt
-hmac
+
