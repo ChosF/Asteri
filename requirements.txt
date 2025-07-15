@@ -9,4 +9,3 @@ python-binance
 supabase
 bcrypt
 hmac
-hashlib
