@@ -29,27 +29,54 @@ def apply_modern_css():
         /* Import Google Fonts */
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
-        /* Root variables for consistent theming */
+        /* Root variables for LİGHT MODE (default) */
         :root {
             --primary-color: #667eea;
             --secondary-color: #764ba2;
             --accent-color: #f093fb;
             --text-primary: #1a1a1a;
             --text-secondary: #666666;
-            --background-primary: #f8fafc;
-            --background-secondary: #ffffff;
-            --glass-bg: rgba(255, 255, 255, 0.25);
-            --glass-border: rgba(255, 255, 255, 0.18);
-            --shadow-light: 0 8px 32px rgba(31, 38, 135, 0.37);
-            --shadow-hover: 0 15px 35px rgba(31, 38, 135, 0.2);
+            --background-gradient: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            --glass-bg: rgba(255, 255, 255, 0.4);
+            --glass-border: rgba(255, 255, 255, 0.2);
+            --shadow-light: 0 8px 32px rgba(31, 38, 135, 0.2);
+            --shadow-hover: 0 15px 35px rgba(31, 38, 135, 0.25);
             --border-radius: 16px;
             --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
+        /* Root variables for DARK MODE */
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --text-primary: #f0f2f6;
+                --text-secondary: #a0a0a0;
+                --background-gradient: linear-gradient(135deg, #232526 0%, #414345 100%);
+                --glass-bg: rgba(40, 40, 40, 0.5);
+                --glass-border: rgba(255, 255, 255, 0.15);
+                --shadow-light: 0 8px 32px rgba(0, 0, 0, 0.3);
+                --shadow-hover: 0 15px 35px rgba(0, 0, 0, 0.35);
+            }
+
+            .main-header p {
+                color: var(--text-secondary) !important;
+            }
+
+            .stDataFrame th {
+                background: rgba(255, 255, 255, 0.1);
+                color: var(--text-primary);
+            }
+
+            .stDataFrame td {
+                background: rgba(255, 255, 255, 0.05);
+                color: var(--text-primary);
+            }
+        }
+
+
         /* Global styles */
         .stApp {
             font-family: 'Inter', sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: var(--background-gradient);
             min-height: 100vh;
         }
 
@@ -63,7 +90,8 @@ def apply_modern_css():
         /* Header styling */
         .main-header {
             background: var(--glass-bg);
-            backdrop-filter: blur(10px);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
             border: 1px solid var(--glass-border);
             border-radius: var(--border-radius);
             padding: 2rem;
@@ -88,12 +116,14 @@ def apply_modern_css():
         /* Input styling */
         .stTextInput > div > div > input {
             background: var(--glass-bg);
-            backdrop-filter: blur(10px);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
             border: 1px solid var(--glass-border);
             border-radius: 12px;
             padding: 0.75rem 1rem;
             font-size: 1.1rem;
             font-weight: 500;
+            color: var(--text-primary);
             transition: var(--transition);
         }
 
@@ -124,7 +154,8 @@ def apply_modern_css():
         /* Glass card styling */
         .glass-card {
             background: var(--glass-bg);
-            backdrop-filter: blur(10px);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
             border: 1px solid var(--glass-border);
             border-radius: var(--border-radius);
             padding: 1.5rem;
@@ -141,7 +172,8 @@ def apply_modern_css():
         /* Company info card */
         .company-info {
             background: var(--glass-bg);
-            backdrop-filter: blur(10px);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
             border: 1px solid var(--glass-border);
             border-radius: var(--border-radius);
             padding: 1.5rem;
@@ -182,7 +214,8 @@ def apply_modern_css():
         /* Metrics styling */
         .metric-container {
             background: var(--glass-bg);
-            backdrop-filter: blur(10px);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
             border: 1px solid var(--glass-border);
             border-radius: var(--border-radius);
             padding: 1.5rem;
@@ -203,7 +236,8 @@ def apply_modern_css():
 
         .stMetric > div {
             background: var(--glass-bg);
-            backdrop-filter: blur(10px);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
             border: 1px solid var(--glass-border);
             border-radius: 12px;
             padding: 1.5rem;
@@ -230,7 +264,8 @@ def apply_modern_css():
         /* Info cards */
         .info-card {
             background: var(--glass-bg);
-            backdrop-filter: blur(10px);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
             border: 1px solid var(--glass-border);
             border-radius: var(--border-radius);
             padding: 1rem;
@@ -255,13 +290,15 @@ def apply_modern_css():
         /* Chart container */
         .chart-container {
             background: var(--glass-bg);
-            backdrop-filter: blur(10px);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
             border: 1px solid var(--glass-border);
             border-radius: var(--border-radius);
             padding: 1.5rem;
             margin-bottom: 2rem;
             box-shadow: var(--shadow-light);
             transition: var(--transition);
+            color: var(--text-primary); /* This will color the chart text */
         }
 
         .chart-container:hover {
@@ -272,7 +309,8 @@ def apply_modern_css():
         /* Table styling */
         .stDataFrame {
             background: var(--glass-bg);
-            backdrop-filter: blur(10px);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
             border: 1px solid var(--glass-border);
             border-radius: var(--border-radius);
             overflow: hidden;
@@ -297,9 +335,11 @@ def apply_modern_css():
         /* Selectbox styling */
         .stSelectbox > div > div {
             background: var(--glass-bg);
-            backdrop-filter: blur(10px);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
             border: 1px solid var(--glass-border);
             border-radius: 12px;
+            color: var(--text-primary);
         }
 
         /* Download button */
@@ -358,6 +398,7 @@ def apply_modern_css():
             right: 0;
             background: var(--glass-bg);
             backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
             border-top: 1px solid var(--glass-border);
             padding: 1rem;
             text-align: center;
@@ -431,19 +472,19 @@ def get_delta(df: pd.DataFrame, key: str) -> str:
 def color_highlighter(val: str) -> str:
     """Returns CSS styling for DataFrame cells"""
     if isinstance(val, str) and val.startswith("-"):
-        return "color: rgba(255, 0, 0, 0.9);"
+        return "color: rgba(255, 77, 77, 0.9);"
     elif isinstance(val, str) and not val.startswith("-") and val != "N/A":
         try:
             float_val = float(val.replace("%", "").replace("+", ""))
             if float_val > 0:
-                return "color: rgba(0, 128, 0, 0.9);"
+                return "color: rgba(46, 204, 113, 0.9);"
         except ValueError:
             pass  # Not a numerical string, do nothing
     elif isinstance(val, (int, float)):
         if val < 0:
-            return "color: rgba(255, 0, 0, 0.9);"
+            return "color: rgba(255, 77, 77, 0.9);"
         elif val > 0:
-            return "color: rgba(0, 128, 0, 0.9);"
+            return "color: rgba(46, 204, 113, 0.9);"
     return ""  # Default or no specific color
 
 
@@ -991,7 +1032,7 @@ def main():
                     f"""
                 <div class="company-info">
                     <div class="company-name">{company_data.get('Name', 'N/A')}</div>
-                    <div style="text-align: center; color: #666666; margin-bottom: 1rem;">
+                    <div style="text-align: center; color: var(--text-secondary); margin-bottom: 1rem;">
                         {company_data.get('Sector', 'N/A')} • {company_data.get('Exchange', 'N/A')} • {company_data.get('Country', 'N/A')}
                     </div>
                 </div>
@@ -1096,7 +1137,9 @@ def main():
                         yaxis_title=f"Price ({company_data.get('Currency', 'USD')})",
                         plot_bgcolor="rgba(0,0,0,0)",
                         paper_bgcolor="rgba(0,0,0,0)",
-                        font=dict(color="#1a1a1a"),
+                        font=dict(
+                            family="Inter, sans-serif"
+                        ),  # Let CSS handle color
                         xaxis=dict(gridcolor="rgba(102, 126, 234, 0.2)"),
                         yaxis=dict(gridcolor="rgba(102, 126, 234, 0.2)"),
                         hovermode="x unified",
