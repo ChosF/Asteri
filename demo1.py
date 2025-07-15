@@ -498,55 +498,90 @@ def show_auth_page():
 # =============================================================================
 
 
-@st.cache_data(ttl=300)  # Cache for 5 minutes
+import logging
+import random
+import requests
+from binance.client import Client as BinanceClient
+import streamlit as st
+
+# set up module-level logger
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+@st.cache_data(ttl=300)
 def get_binance_client(api_key: str, api_secret: str):
     """
-    Get Binance client, routing through a free Mexican HTTPS proxy
-    (fetched from ProxyScrape) to bypass US-region restrictions.
+    Get Binance client using a Mexican HTTPS proxy (free list via ProxyScrape).
+    Tries up to 5 proxies before falling back to a direct connection.
+    Logs each attempt so you can verify which proxy (if any) was used.
     """
-    import requests
-
-    # --- PROXY CONFIGURATION ---
-    # Fetch a list of free Mexican HTTPS proxies from ProxyScrape
-    proxy_api = (
-        "https://api.proxyscrape.com/?"
-        "request=displayproxies&proxytype=http"
-        "&country=MX&ssl=yes&timeout=10000"
-    )
+    # 1) fetch free MX HTTPS proxy list
     try:
-        resp = requests.get(proxy_api, timeout=5)
+        resp = requests.get(
+            "https://api.proxyscrape.com/v2/"
+            "?request=getproxies&protocol=https&timeout=5000&country=mx&ssl=yes",
+            timeout=5
+        )
         resp.raise_for_status()
-        proxy_list = resp.text.strip().splitlines()
-        if proxy_list:
-            # pick the first proxy in host:port format
-            proxy = proxy_list[0].strip()
-            proxies = {"https": f"http://{proxy}"}
-        else:
-            proxies = {}
-    except Exception:
-        # if fetching fails, fall back to no proxy (may be blocked)
-        proxies = {}
+        all_proxies = [p.strip() for p in resp.text.splitlines() if p.strip()]
+        random.shuffle(all_proxies)
+    except Exception as e:
+        logger.warning(f"Could not retrieve proxy list: {e}")
+        all_proxies = []
 
-    requests_params = {"proxies": proxies} if proxies else None
+    # 2) test up to 5 proxies
+    best_proxy = None
+    for candidate in all_proxies[:5]:
+        proxies = {
+            "http":  f"http://{candidate}",
+            "https": f"https://{candidate}"
+        }
+        logger.info(f"Testing proxy {candidate} ...")
+        try:
+            # ping Binance public endpoint via requests
+            r = requests.get(
+                "https://api.binance.com/api/v3/ping",
+                proxies=proxies,
+                timeout=5
+            )
+            if r.status_code == 200:
+                best_proxy = candidate
+                logger.info(f"Proxy {candidate} works!")
+                break
+            else:
+                logger.warning(f"Proxy {candidate} returned {r.status_code}")
+        except Exception as e:
+            logger.warning(f"Proxy {candidate} failed: {e}")
 
+    # 3) build requests_params
+    if best_proxy:
+        requests_params = {
+            "proxies": {
+                "http":  f"http://{best_proxy}",
+                "https": f"https://{best_proxy}"
+            }
+        }
+    else:
+        requests_params = None
+        logger.warning(
+            "No working MX proxy found; falling back to direct connection."
+        )
+
+    # 4) instantiate and verify BinanceClient
     try:
-        # Initialize client against global Binance.com endpoint
         client = BinanceClient(
-            api_key,
-            api_secret,
-            tld="com",
+            api_key, api_secret,
+            tld="com",            # ensure global endpoint
             requests_params=requests_params
         )
-        # verify connectivity
-        client.ping()
+        client.ping()   # verify connection
+        if best_proxy:
+            logger.info(f"Binance client connected via proxy {best_proxy}")
+        else:
+            logger.info("Binance client connected directly (no proxy)")
         return client
     except Exception as e:
-        st.error(f"Failed to connect to Binance: {e}")
-        if proxies:
-            st.warning(
-                "Tried using proxy "
-                f"{proxies.get('https')} – check that it's still alive."
-            )
+        logger.error(f"Failed to connect to Binance: {e}")
         return None
 
 
