@@ -1,14 +1,21 @@
 # Standard library imports
 import sys
 from io import BytesIO
+import os
+import time
+import hmac
+import hashlib
+import json
+from datetime import datetime, timedelta
+from urllib.parse import urlencode
 
 # Third-party imports
 import streamlit as st
 import pandas as pd
 import numpy as np
-import requests
 import plotly.graph_objs as go
-from millify import millify
+from binance.client import Client
+from binance.exceptions import BinanceAPIException
 
 
 # Configure the app page
@@ -20,9 +27,22 @@ st.set_page_config(
 )
 
 
+def millify(num, precision=2):
+    """Custom implementation of millify function"""
+    if num == 0:
+        return "0"
+    
+    magnitude = 0
+    while abs(num) >= 1000:
+        magnitude += 1
+        num /= 1000.0
+    
+    return f"{num:.{precision}f}{['', 'K', 'M', 'B', 'T'][magnitude]}"
+
+
 def apply_modern_css():
     """
-    Apply modern CSS styling with glassmorphism effects, hover animations, and improved UI
+    Apply modern CSS styling with glassmorphism effects, hover animations, improved UI, and sticky header
     """
     modern_css = """
     <style>
@@ -56,26 +76,6 @@ def apply_modern_css():
                 --shadow-light: 0 8px 32px rgba(0, 0, 0, 0.3);
                 --shadow-hover: 0 15px 35px rgba(0, 0, 0, 0.35);
             }
-
-            .main-header p {
-                color: var(--text-secondary) !important;
-            }
-
-            .sticky-header {
-                background: rgba(40, 40, 40, 0.8) !important;
-                backdrop-filter: blur(20px) saturate(180%);
-                -webkit-backdrop-filter: blur(20px) saturate(180%);
-            }
-
-            .stDataFrame th {
-                background: rgba(255, 255, 255, 0.1);
-                color: var(--text-primary);
-            }
-
-            .stDataFrame td {
-                background: rgba(255, 255, 255, 0.05);
-                color: var(--text-primary);
-            }
         }
 
         /* Global styles */
@@ -92,35 +92,40 @@ def apply_modern_css():
             margin: 0 auto;
         }
 
-        /* Sticky header styling */
+        /* Sticky header implementation */
         .sticky-header {
             position: fixed;
             top: 0;
             left: 0;
             right: 0;
-            z-index: 1000;
-            background: rgba(255, 255, 255, 0.8);
-            backdrop-filter: blur(20px) saturate(180%);
-            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
             border-bottom: 1px solid var(--glass-border);
             padding: 1rem 2rem;
+            z-index: 1000;
             transform: translateY(-100%);
-            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: transform 0.3s ease-in-out;
         }
 
         .sticky-header.visible {
             transform: translateY(0);
         }
 
-        .sticky-header h1 {
+        .sticky-header h2 {
             color: var(--text-primary);
-            font-weight: 700;
-            font-size: 1.8rem;
+            font-weight: 600;
+            font-size: 1.5rem;
             margin: 0;
             text-align: center;
         }
 
-        /* Header styling */
+        /* Add padding to body when sticky header is visible */
+        .sticky-header-spacer {
+            height: 80px;
+        }
+
+        /* Main header styling */
         .main-header {
             background: var(--glass-bg);
             backdrop-filter: blur(16px);
@@ -144,6 +149,76 @@ def apply_modern_css():
             font-size: 2.5rem;
             margin-bottom: 0.5rem;
             text-align: center;
+        }
+
+        /* Login section styling */
+        .login-section {
+            background: var(--glass-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--border-radius);
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: var(--shadow-light);
+            transition: var(--transition);
+        }
+
+        .login-section:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-hover);
+        }
+
+        /* Company overview with logo styling */
+        .company-overview {
+            background: var(--glass-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--border-radius);
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: var(--shadow-light);
+            transition: var(--transition);
+            display: flex;
+            align-items: center;
+            gap: 2rem;
+        }
+
+        .company-overview:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-hover);
+        }
+
+        .company-info {
+            flex: 1;
+        }
+
+        .company-logo {
+            flex-shrink: 0;
+        }
+
+        .company-logo img {
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            transition: var(--transition);
+        }
+
+        .company-logo img:hover {
+            transform: scale(1.05);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+        }
+
+        .company-name {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .company-details {
+            color: var(--text-secondary);
+            margin-bottom: 1rem;
         }
 
         /* Input styling */
@@ -202,61 +277,6 @@ def apply_modern_css():
             box-shadow: var(--shadow-hover);
         }
 
-        /* Company info card - Updated to include logo */
-        .company-info {
-            background: var(--glass-bg);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid var(--glass-border);
-            border-radius: var(--border-radius);
-            padding: 1.5rem;
-            margin-bottom: 2rem;
-            box-shadow: var(--shadow-light);
-            transition: var(--transition);
-            display: flex;
-            align-items: center;
-            gap: 1.5rem;
-        }
-
-        .company-info:hover {
-            transform: translateY(-2px);
-            box-shadow: var(--shadow-hover);
-        }
-
-        .company-text {
-            flex: 1;
-        }
-
-        .company-name {
-            font-size: 1.8rem;
-            font-weight: 700;
-            color: var(--text-primary);
-            margin-bottom: 0.5rem;
-        }
-
-        .company-details {
-            color: var(--text-secondary);
-            font-size: 1rem;
-        }
-
-        .company-logo {
-            flex-shrink: 0;
-        }
-
-        .company-logo img {
-            height: 80px;
-            width: 100px;
-            object-fit: contain;
-            border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-            transition: var(--transition);
-        }
-
-        .company-logo img:hover {
-            transform: scale(1.05);
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
-        }
-
         /* Metrics styling */
         .metric-container {
             background: var(--glass-bg);
@@ -295,44 +315,6 @@ def apply_modern_css():
             box-shadow: var(--shadow-hover);
         }
 
-        .stMetric label {
-            font-weight: 600;
-            color: var(--text-secondary);
-            font-size: 0.9rem;
-        }
-
-        .stMetric [data-testid="metric-value"] {
-            font-size: 1.8rem;
-            font-weight: 700;
-            color: var(--text-primary);
-        }
-
-        /* Info cards */
-        .info-card {
-            background: var(--glass-bg);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid var(--glass-border);
-            border-radius: var(--border-radius);
-            padding: 1rem;
-            text-align: center;
-            box-shadow: var(--shadow-light);
-            transition: var(--transition);
-            margin-bottom: 1rem;
-        }
-
-        .info-card:hover {
-            transform: translateY(-3px);
-            box-shadow: var(--shadow-hover);
-        }
-
-        .info-card h3 {
-            color: var(--text-primary);
-            font-weight: 600;
-            margin: 0;
-            font-size: 1.1rem;
-        }
-
         /* Chart container */
         .chart-container {
             background: var(--glass-bg);
@@ -352,108 +334,7 @@ def apply_modern_css():
             box-shadow: var(--shadow-hover);
         }
 
-        /* Table styling */
-        .stDataFrame {
-            background: var(--glass-bg);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid var(--glass-border);
-            border-radius: var(--border-radius);
-            overflow: hidden;
-            box-shadow: var(--shadow-light);
-        }
-
-        .stDataFrame table {
-            background: transparent;
-        }
-
-        .stDataFrame th {
-            background: rgba(102, 126, 234, 0.1);
-            color: var(--text-primary);
-            font-weight: 600;
-        }
-
-        .stDataFrame td {
-            background: rgba(255, 255, 255, 0.05);
-            color: var(--text-primary);
-        }
-
-        /* Selectbox styling */
-        .stSelectbox > div > div {
-            background: var(--glass-bg);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid var(--glass-border);
-            border-radius: 12px;
-            color: var(--text-primary);
-        }
-
-        /* Download button */
-        .stDownloadButton > button {
-            background: linear-gradient(135deg, var(--accent-color), var(--primary-color));
-            border: none;
-            border-radius: 12px;
-            padding: 0.75rem 2rem;
-            font-weight: 600;
-            color: white;
-            transition: var(--transition);
-            box-shadow: var(--shadow-light);
-        }
-
-        .stDownloadButton > button:hover {
-            transform: translateY(-2px);
-            box-shadow: var(--shadow-hover);
-        }
-
-        /* Responsive design */
-        @media (max-width: 768px) {
-            .main .block-container {
-                padding: 1rem 0.5rem;
-            }
-
-            .main-header h1 {
-                font-size: 2rem;
-            }
-
-            .glass-card {
-                padding: 1rem;
-            }
-
-            .company-info {
-                flex-direction: column;
-                text-align: center;
-            }
-
-            .company-logo {
-                order: -1;
-            }
-
-            .sticky-header {
-                padding: 0.5rem 1rem;
-            }
-
-            .sticky-header h1 {
-                font-size: 1.5rem;
-            }
-        }
-
-        /* Loading animation */
-        @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.5; }
-            100% { opacity: 1; }
-        }
-
-        .loading {
-            animation: pulse 1.5s ease-in-out infinite;
-        }
-
-        /* Hide Streamlit elements */
-        #MainMenu {visibility: hidden;}
-        footer {visibility: hidden;}
-        header {visibility: hidden;}
-
-        /* Custom footer - Made thinner */
+        /* Custom thinner footer */
         .custom-footer {
             position: fixed;
             bottom: 0;
@@ -467,592 +348,242 @@ def apply_modern_css():
             text-align: center;
             color: var(--text-secondary);
             font-size: 0.8rem;
-            z-index: 999;
             height: 40px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            line-height: 1.5;
         }
 
-        /* Add padding to main content to account for footer */
-        .main .block-container {
-            padding-bottom: 60px;
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .main .block-container {
+                padding: 1rem 0.5rem;
+            }
+
+            .main-header h1 {
+                font-size: 2rem;
+            }
+
+            .company-overview {
+                flex-direction: column;
+                text-align: center;
+            }
+
+            .glass-card {
+                padding: 1rem;
+            }
+        }
+
+        /* Hide Streamlit elements */
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        header {visibility: hidden;}
+
+        /* Sticky header scroll behavior */
+        .sticky-header-script {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 1px;
+            pointer-events: none;
+            z-index: 9999;
         }
     </style>
+    
+    <script>
+        // Sticky header functionality
+        window.addEventListener('scroll', function() {
+            const scrollPosition = window.pageYOffset;
+            const stickyHeader = document.querySelector('.sticky-header');
+            
+            if (scrollPosition > 200) {
+                stickyHeader.classList.add('visible');
+            } else {
+                stickyHeader.classList.remove('visible');
+            }
+        });
+    </script>
     """
     st.markdown(modern_css, unsafe_allow_html=True)
 
 
-def inject_sticky_header_script():
-    """
-    Inject JavaScript to handle sticky header behavior
-    """
-    sticky_script = """
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            let stickyHeader = document.querySelector('.sticky-header');
-            let mainHeader = document.querySelector('.main-header');
-            
-            if (!stickyHeader || !mainHeader) return;
-            
-            function handleScroll() {
-                let scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-                let headerHeight = mainHeader.offsetHeight + 50; // Add some buffer
-                
-                if (scrollTop > headerHeight) {
-                    stickyHeader.classList.add('visible');
-                } else {
-                    stickyHeader.classList.remove('visible');
-                }
-            }
-            
-            window.addEventListener('scroll', handleScroll);
-            handleScroll(); // Initial check
-        });
-    </script>
-    """
-    st.components.v1.html(sticky_script, height=0)
+def login_section():
+    """Create login section for Binance API credentials"""
+    st.markdown("### 🔐 Login to Binance")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        api_key = st.text_input(
+            "Binance API Key",
+            type="password",
+            placeholder="Enter your Binance API Key",
+            help="Your Binance API Key for accessing market data"
+        )
+    
+    with col2:
+        api_secret = st.text_input(
+            "Binance API Secret",
+            type="password",
+            placeholder="Enter your Binance API Secret",
+            help="Your Binance API Secret for authentication"
+        )
+    
+    if st.button("🚀 Connect to Binance", use_container_width=True):
+        if api_key and api_secret:
+            try:
+                # Test the connection
+                client = Client(api_key, api_secret)
+                client.get_server_time()
+                st.session_state["binance_client"] = client
+                st.session_state["logged_in"] = True
+                st.success("✅ Successfully connected to Binance!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Failed to connect to Binance: {str(e)}")
+        else:
+            st.warning("⚠️ Please enter both API Key and Secret")
+
+
+# =============================================================================
+# BINANCE DATA FUNCTIONS
+# =============================================================================
+
+@st.cache_data(ttl=60 * 5)
+def get_binance_symbol_info(client, symbol):
+    """Get symbol information from Binance"""
+    try:
+        # Get symbol info
+        symbol_info = client.get_symbol_info(symbol)
+        
+        # Get 24hr ticker
+        ticker = client.get_ticker(symbol=symbol)
+        
+        # Get order book
+        order_book = client.get_order_book(symbol=symbol, limit=10)
+        
+        return {
+            "symbol": symbol_info["symbol"],
+            "status": symbol_info["status"],
+            "base_asset": symbol_info["baseAsset"],
+            "quote_asset": symbol_info["quoteAsset"],
+            "price": float(ticker["lastPrice"]),
+            "price_change": float(ticker["priceChange"]),
+            "price_change_percent": float(ticker["priceChangePercent"]),
+            "volume": float(ticker["volume"]),
+            "high_24h": float(ticker["highPrice"]),
+            "low_24h": float(ticker["lowPrice"]),
+            "open_price": float(ticker["openPrice"]),
+            "bid_price": float(order_book["bids"][0][0]) if order_book["bids"] else 0,
+            "ask_price": float(order_book["asks"][0][0]) if order_book["asks"] else 0,
+            "count": int(ticker["count"]),
+            "quote_volume": float(ticker["quoteVolume"]),
+        }
+    except Exception as e:
+        st.error(f"Error fetching symbol info: {str(e)}")
+        return None
+
+
+@st.cache_data(ttl=60 * 5)
+def get_binance_klines(client, symbol, interval="1d", limit=365):
+    """Get historical klines/candlestick data"""
+    try:
+        klines = client.get_klines(symbol=symbol, interval=interval, limit=limit)
+        
+        df = pd.DataFrame(klines, columns=[
+            'timestamp', 'open', 'high', 'low', 'close', 'volume',
+            'close_time', 'quote_asset_volume', 'number_of_trades',
+            'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'
+        ])
+        
+        # Convert to proper data types
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        df['open'] = df['open'].astype(float)
+        df['high'] = df['high'].astype(float)
+        df['low'] = df['low'].astype(float)
+        df['close'] = df['close'].astype(float)
+        df['volume'] = df['volume'].astype(float)
+        
+        df = df.set_index('timestamp')
+        return df
+    except Exception as e:
+        st.error(f"Error fetching klines: {str(e)}")
+        return None
+
+
+@st.cache_data(ttl=60 * 30)
+def get_binance_trades(client, symbol, limit=100):
+    """Get recent trades"""
+    try:
+        trades = client.get_recent_trades(symbol=symbol, limit=limit)
+        
+        df = pd.DataFrame(trades)
+        if not df.empty:
+            df['time'] = pd.to_datetime(df['time'], unit='ms')
+            df['price'] = df['price'].astype(float)
+            df['qty'] = df['qty'].astype(float)
+        
+        return df
+    except Exception as e:
+        st.error(f"Error fetching trades: {str(e)}")
+        return None
+
+
+@st.cache_data(ttl=60 * 10)
+def get_binance_depth(client, symbol, limit=20):
+    """Get order book depth"""
+    try:
+        depth = client.get_order_book(symbol=symbol, limit=limit)
+        
+        bids_df = pd.DataFrame(depth['bids'], columns=['price', 'quantity'])
+        asks_df = pd.DataFrame(depth['asks'], columns=['price', 'quantity'])
+        
+        bids_df = bids_df.astype(float)
+        asks_df = asks_df.astype(float)
+        
+        return {
+            'bids': bids_df,
+            'asks': asks_df,
+            'last_update_id': depth['lastUpdateId']
+        }
+    except Exception as e:
+        st.error(f"Error fetching depth: {str(e)}")
+        return None
+
+
+@st.cache_data(ttl=60 * 60)
+def get_binance_exchange_info(client):
+    """Get exchange information"""
+    try:
+        info = client.get_exchange_info()
+        
+        # Extract symbols
+        symbols = []
+        for symbol_info in info['symbols']:
+            if symbol_info['status'] == 'TRADING':
+                symbols.append({
+                    'symbol': symbol_info['symbol'],
+                    'base_asset': symbol_info['baseAsset'],
+                    'quote_asset': symbol_info['quoteAsset'],
+                    'status': symbol_info['status'],
+                })
+        
+        return {
+            'symbols': symbols,
+            'server_time': info['serverTime'],
+            'rate_limits': info['rateLimits']
+        }
+    except Exception as e:
+        st.error(f"Error fetching exchange info: {str(e)}")
+        return None
 
 
 def create_sticky_header():
-    """
-    Create the sticky header that appears on scroll
-    """
-    sticky_header_html = """
-    <div class="sticky-header">
-        <h1>📈 Financial Dashboard</h1>
+    """Create sticky header"""
+    st.markdown("""
+    <div class="sticky-header" id="sticky-header">
+        <h2>📈 Financial Dashboard</h2>
     </div>
-    """
-    st.markdown(sticky_header_html, unsafe_allow_html=True)
-
-
-def create_glass_card(content, hover_effect=True):
-    """Create a glass morphism card with content"""
-    hover_class = "glass-card" if hover_effect else "glass-card-no-hover"
-    return f"""
-    <div class="{hover_class}">
-        {content}
-    </div>
-    """
-
-
-def create_info_card(title, icon="📊"):
-    """Create an info card with glassmorphism effect"""
-    return f"""
-    <div class="info-card">
-        <h3>{icon} {title}</h3>
-    </div>
-    """
-
-
-def create_metric_card(label, value, delta=None):
-    """Create a metric card with glassmorphism effect"""
-    delta_html = f"<div class='metric-delta'>{delta}</div>" if delta else ""
-    return f"""
-    <div class="metric-container">
-        <div class="metric-label">{label}</div>
-        <div class="metric-value">{value}</div>
-        {delta_html}
-    </div>
-    """
-
-
-def get_delta(df: pd.DataFrame, key: str) -> str:
-    """Calculate percentage difference between the first two values"""
-    if key not in df.columns:
-        return f"Key '{key}' not found in DataFrame columns."
-
-    if len(df) < 2:
-        return "DataFrame must contain at least two rows."
-
-    val1 = df[key][1]  # Second most recent
-    val2 = df[key][0]  # Most recent
-
-    if pd.isna(val1) or pd.isna(val2):
-        return "N/A"
-
-    if val1 == 0:
-        if val2 == 0:
-            return "0.00%"  # No change if both are zero
-        else:
-            return (
-                "Inf%" if val2 > 0 else "-Inf%"
-            )  # Infinite change if previous was zero
-    else:
-        delta = (val2 - val1) / val1 * 100
-
-    # Add a sign for positive deltas for consistency
-    return f"{delta:+.2f}%"
-
-
-def color_highlighter(val: str) -> str:
-    """Returns CSS styling for DataFrame cells"""
-    if isinstance(val, str) and val.startswith("-"):
-        return "color: rgba(255, 77, 77, 0.9);"
-    elif isinstance(val, str) and not val.startswith("-") and val != "N/A":
-        try:
-            float_val = float(val.replace("%", "").replace("+", ""))
-            if float_val > 0:
-                return "color: rgba(46, 204, 113, 0.9);"
-        except ValueError:
-            pass  # Not a numerical string, do nothing
-    elif isinstance(val, (int, float)):
-        if val < 0:
-            return "color: rgba(255, 77, 77, 0.9);"
-        elif val > 0:
-            return "color: rgba(46, 204, 113, 0.9);"
-    return ""  # Default or no specific color
-
-
-# =============================================================================
-# DATA FUNCTIONS (cached for performance)
-# =============================================================================
-
-# Load API keys
-FMP_API_KEY = ["OoJcYpvMo94etCgLpr1s6TABcmhr7AWT"]
-ALPHA_API_KEY = ["ZPODKN7Q87COJ0IR"]
-
-
-@st.cache_data(ttl=60 * 60 * 24 * 30)
-def get_company_info(symbol: str) -> dict:
-    """Returns company information for the given stock symbol"""
-    api_endpoint = f"https://financialmodelingprep.com/api/v3/profile/{symbol}/"
-    params = {"apikey": FMP_API_KEY[0]}  # Access the key from the list
-    try:
-        response = requests.get(api_endpoint, params=params)
-        response.raise_for_status()
-        data = response.json()
-        if not data:  # Check if the list is empty
-            return None
-        data = data[0]
-        return {
-            "Name": data.get("companyName"),
-            "Exchange": data.get("exchangeShortName"),
-            "Currency": data.get("currency"),
-            "Country": data.get("country"),
-            "Sector": data.get("sector"),
-            "Market Cap": data.get("mktCap"),
-            "Price": data.get("price"),
-            "Beta": data.get("beta"),
-            "Price change": data.get("changes"),
-            "Website": data.get("website"),
-            "Image": data.get("image"),
-        }
-    except requests.exceptions.RequestException as e:
-        st.error(
-            f"Network error or invalid API response fetching company info: {e}"
-        )
-        return None
-    except (IndexError, KeyError) as e:
-        st.error(
-            f"Data parsing error for company info. Ticker might be invalid or data is missing: {e}"
-        )
-        return None
-    except Exception as e:
-        st.error(
-            f"An unexpected error occurred while fetching company info: {e}"
-        )
-        return None
-
-
-@st.cache_data(ttl=60 * 60 * 24 * 30)
-def get_stock_price(symbol: str) -> pd.DataFrame:
-    """Returns monthly stock prices for the last 5 years"""
-    api_endpoint = "https://www.alphavantage.co/query"
-    params = {
-        "function": "TIME_SERIES_MONTHLY_ADJUSTED",
-        "symbol": symbol,
-        "apikey": ALPHA_API_KEY[0],  # Access the key from the list
-    }
-    try:
-        response = requests.get(api_endpoint, params=params)
-        response.raise_for_status()
-        data = response.json()
-        if "Monthly Adjusted Time Series" not in data:
-            st.warning(
-                "Alpha Vantage API rate limit likely hit or no data for this symbol. Try again in a minute."
-            )
-            return None
-
-        df = pd.DataFrame.from_dict(
-            data["Monthly Adjusted Time Series"], orient="index"
-        )
-        df.index = pd.to_datetime(df.index)
-        df = df[: 12 * 5]  # Get last 5 years (60 months)
-        df = df[["4. close"]].astype(float)
-        df = df.rename(columns={"4. close": "Price"})
-        # Sort index in ascending order for plotting
-        df = df.sort_index()
-        return df
-    except requests.exceptions.RequestException as e:
-        st.error(
-            f"Network error or invalid API response fetching stock price: {e}"
-        )
-        return None
-    except KeyError as e:
-        st.error(
-            f"Data parsing error for stock price. Ticker might be invalid or data is missing: {e}"
-        )
-        return None
-    except Exception as e:
-        st.error(
-            f"An unexpected error occurred while fetching stock price: {e}"
-        )
-        return None
-
-
-@st.cache_data(ttl=60 * 60 * 24 * 30)
-def get_income_statement(symbol: str) -> pd.DataFrame:
-    """Retrieves income statement data"""
-    api_endpoint = (
-        f"https://financialmodelingprep.com/api/v3/income-statement/{symbol}/"
-    )
-    params = {"limit": 5, "apikey": FMP_API_KEY[0]}
-    try:
-        income_statement_data = []
-        response = requests.get(api_endpoint, params=params)
-        response.raise_for_status()
-        response_data = response.json()
-        if not response_data:
-            return None
-        for report in response_data:
-            year = report.get("calendarYear")
-            if year:  # Ensure year exists
-                income_statement_data.append(
-                    {
-                        "Year": year,
-                        "Revenue": report.get("revenue"),
-                        "(-) Cost of Revenue": report.get("costOfRevenue"),
-                        "= Gross Profit": report.get("grossProfit"),
-                        "(-) Operating Expense": report.get("operatingExpenses"),
-                        "= Operating Income": report.get("operatingIncome"),
-                        "(+-) Other Income/Expenses": report.get(
-                            "totalOtherIncomeExpensesNet"
-                        ),
-                        "= Income Before Tax": report.get("incomeBeforeTax"),
-                        "(+-) Tax Income/Expense": report.get(
-                            "incomeTaxExpense"
-                        ),
-                        "= Net Income": report.get("netIncome"),
-                    }
-                )
-        # Sort by year in descending order for recent years first in table
-        df = (
-            pd.DataFrame(income_statement_data)
-            .set_index("Year")
-            .sort_index(ascending=False)
-        )
-        return df
-    except requests.exceptions.RequestException as e:
-        st.error(
-            f"Network error or invalid API response fetching income statement: {e}"
-        )
-        return None
-    except (KeyError, TypeError) as e:
-        st.error(
-            f"Data parsing error for income statement. Ticker might be invalid or data is missing: {e}"
-        )
-        return None
-    except Exception as e:
-        st.error(
-            f"An unexpected error occurred while fetching income statement: {e}"
-        )
-        return None
-
-
-@st.cache_data(ttl=60 * 60 * 24 * 30)
-def get_balance_sheet(symbol: str) -> pd.DataFrame:
-    """Retrieves balance sheet data"""
-    api_endpoint = f"https://financialmodelingprep.com/api/v3/balance-sheet-statement/{symbol}"
-    params = {"limit": 5, "apikey": FMP_API_KEY[0]}
-    try:
-        balance_sheet_data = []
-        response = requests.get(api_endpoint, params=params)
-        response.raise_for_status()
-        response_data = response.json()
-        if not response_data:
-            return None
-        for report in response_data:
-            year = report.get("calendarYear")
-            if year:
-                balance_sheet_data.append(
-                    {
-                        "Year": year,
-                        "Assets": report.get("totalAssets"),
-                        "Current Assets": report.get("totalCurrentAssets"),
-                        "Non-Current Assets": report.get(
-                            "totalNonCurrentAssets"
-                        ),
-                        "Current Liabilities": report.get(
-                            "totalCurrentLiabilities"
-                        ),
-                        "Non-Current Liabilities": report.get(
-                            "totalNonCurrentLiabilities"
-                        ),
-                        "Liabilities": report.get("totalLiabilities"),
-                        "Equity": report.get("totalEquity"),
-                    }
-                )
-        df = (
-            pd.DataFrame(balance_sheet_data)
-            .set_index("Year")
-            .sort_index(ascending=False)
-        )
-        return df
-    except requests.exceptions.RequestException as e:
-        st.error(
-            f"Network error or invalid API response fetching balance sheet: {e}"
-        )
-        return None
-    except (KeyError, TypeError) as e:
-        st.error(
-            f"Data parsing error for balance sheet. Ticker might be invalid or data is missing: {e}"
-        )
-        return None
-    except Exception as e:
-        st.error(
-            f"An unexpected error occurred while fetching balance sheet: {e}"
-        )
-        return None
-
-
-@st.cache_data(ttl=60 * 60 * 24 * 30)
-def get_cash_flow(symbol: str) -> pd.DataFrame:
-    """Retrieve cash flow data"""
-    api_endpoint = f"https://financialmodelingprep.com/api/v3/cash-flow-statement/{symbol}"
-    params = {"limit": 5, "apikey": FMP_API_KEY[0]}
-    try:
-        cashflow_data = []
-        response = requests.get(api_endpoint, params=params)
-        response.raise_for_status()
-        response_data = response.json()
-        if not response_data:
-            return None
-        for report in response_data:
-            year = (
-                report.get("date").split("-")[0] if report.get("date") else None
-            )
-            if year:
-                cashflow_data.append(
-                    {
-                        "Year": year,
-                        "Cash flows from operating activities": report.get(
-                            "netCashProvidedByOperatingActivities"
-                        ),
-                        "Cash flows from investing activities": report.get(
-                            "netCashUsedForInvestingActivites"
-                        ),
-                        "Cash flows from financing activities": report.get(
-                            "netCashUsedProvidedByFinancingActivities"
-                        ),
-                        "Free cash flow": report.get("freeCashFlow"),
-                    }
-                )
-        df = (
-            pd.DataFrame(cashflow_data)
-            .set_index("Year")
-            .sort_index(ascending=False)
-        )
-        return df
-    except requests.exceptions.RequestException as e:
-        st.error(
-            f"Network error or invalid API response fetching cash flow: {e}"
-        )
-        return None
-    except (KeyError, TypeError) as e:
-        st.error(
-            f"Data parsing error for cash flow. Ticker might be invalid or data is missing: {e}"
-        )
-        return None
-    except Exception as e:
-        st.error(f"An unexpected error occurred while fetching cash flow: {e}")
-        return None
-
-
-@st.cache_data(ttl=60 * 60 * 24 * 30)
-def get_key_metrics(symbol: str) -> pd.DataFrame:
-    """Returns key financial metrics"""
-    api_endpoint = (
-        f"https://financialmodelingprep.com/api/v3/key-metrics/{symbol}"
-    )
-    params = {"limit": 5, "apikey": FMP_API_KEY[0]}
-    try:
-        metrics_data = []
-        response = requests.get(api_endpoint, params=params)
-        response.raise_for_status()
-        response_data = response.json()
-        if not response_data:
-            return None
-        for report in response_data:
-            year = (
-                report.get("date").split("-")[0] if report.get("date") else None
-            )
-            if year:
-                metrics_data.append(
-                    {
-                        "Year": year,
-                        "Market Cap": report.get("marketCap"),
-                        "Working Capital": report.get("workingCapital"),
-                        "D/E ratio": report.get("debtToEquity"),
-                        "P/E Ratio": report.get("peRatio"),
-                        "ROE": report.get("roe"),
-                        "Dividend Yield": report.get("dividendYield"),
-                    }
-                )
-        df = (
-            pd.DataFrame(metrics_data)
-            .set_index("Year")
-            .sort_index(ascending=False)
-        )
-        return df
-    except requests.exceptions.RequestException as e:
-        st.error(
-            f"Network error or invalid API response fetching key metrics: {e}"
-        )
-        return None
-    except (KeyError, TypeError) as e:
-        st.error(
-            f"Data parsing error for key metrics. Ticker might be invalid or data is missing: {e}"
-        )
-        return None
-    except Exception as e:
-        st.error(
-            f"An unexpected error occurred while fetching key metrics: {e}"
-        )
-        return None
-
-
-@st.cache_data(ttl=60 * 60 * 24 * 30)
-def get_financial_ratios(symbol: str) -> pd.DataFrame:
-    """Fetches financial ratios"""
-    api_endpoint = f"https://financialmodelingprep.com/api/v3/ratios/{symbol}"
-    params = {"limit": 5, "apikey": FMP_API_KEY[0]}
-    try:
-        ratios_data = []
-        response = requests.get(api_endpoint, params=params)
-        response.raise_for_status()
-        response_data = response.json()
-        if not response_data:
-            return None
-        for report in response_data:
-            year = (
-                report.get("date").split("-")[0] if report.get("date") else None
-            )
-            if year:
-                ratios_data.append(
-                    {
-                        "Year": year,
-                        "Current Ratio": report.get("currentRatio"),
-                        "Quick Ratio": report.get("quickRatio"),
-                        "Cash Ratio": report.get("cashRatio"),
-                        "Days of Sales Outstanding": report.get(
-                            "daysOfSalesOutstanding"
-                        ),
-                        "Days of Inventory Outstanding": report.get(
-                            "daysOfInventoryOutstanding"
-                        ),
-                        "Operating Cycle": report.get("operatingCycle"),
-                        "Days of Payables Outstanding": report.get(
-                            "daysOfPayablesOutstanding"
-                        ),
-                        "Cash Conversion Cycle": report.get(
-                            "cashConversionCycle"
-                        ),
-                        "Gross Profit Margin": report.get("grossProfitMargin"),
-                        "Operating Profit Margin": report.get(
-                            "operatingProfitMargin"
-                        ),
-                        "Pretax Profit Margin": report.get(
-                            "pretaxProfitMargin"
-                        ),
-                        "Net Profit Margin": report.get("netProfitMargin"),
-                        "Effective Tax Rate": report.get("effectiveTaxRate"),
-                        "Return on Assets": report.get("returnOnAssets"),
-                        "Return on Equity": report.get("returnOnEquity"),
-                        "Return on Capital Employed": report.get(
-                            "returnOnCapitalEmployed"
-                        ),
-                        "Net Income per EBT": report.get("netIncomePerEBT"),
-                        "EBT per EBIT": report.get("ebtPerEbit"),
-                        "EBIT per Revenue": report.get("ebitPerRevenue"),
-                        "Debt Ratio": report.get("debtRatio"),
-                        "Debt Equity Ratio": report.get("debtEquityRatio"),
-                        "Long-term Debt to Capitalization": report.get(
-                            "longTermDebtToCapitalization"
-                        ),
-                        "Total Debt to Capitalization": report.get(
-                            "totalDebtToCapitalization"
-                        ),
-                        "Interest Coverage": report.get("interestCoverage"),
-                        "Cash Flow to Debt Ratio": report.get(
-                            "cashFlowToDebtRatio"
-                        ),
-                        "Company Equity Multiplier": report.get(
-                            "companyEquityMultiplier"
-                        ),
-                        "Receivables Turnover": report.get(
-                            "receivablesTurnover"
-                        ),
-                        "Payables Turnover": report.get("payablesTurnover"),
-                        "Inventory Turnover": report.get("inventoryTurnover"),
-                        "Fixed Asset Turnover": report.get(
-                            "fixedAssetTurnover"
-                        ),
-                        "Asset Turnover": report.get("assetTurnover"),
-                        "Operating Cash Flow per Share": report.get(
-                            "operatingCashFlowPerShare"
-                        ),
-                        "Free Cash Flow per Share": report.get(
-                            "freeCashFlowPerShare"
-                        ),
-                        "Cash per Share": report.get("cashPerShare"),
-                        "Payout Ratio": report.get("payoutRatio"),
-                        "Operating Cash Flow Sales Ratio": report.get(
-                            "operatingCashFlowSalesRatio"
-                        ),
-                        "Free Cash Flow Operating Cash Flow Ratio": report.get(
-                            "freeCashFlowOperatingCashFlowRatio"
-                        ),
-                        "Cash Flow Coverage Ratios": report.get(
-                            "cashFlowCoverageRatios"
-                        ),
-                        "Price to Book Value Ratio": report.get(
-                            "priceToBookRatio"
-                        ),
-                        "Price to Earnings Ratio": report.get(
-                            "priceEarningsRatio"
-                        ),
-                        "Price to Sales Ratio": report.get(
-                            "priceToSalesRatio"
-                        ),
-                        "Dividend Yield": report.get("dividendYield"),
-                        "Enterprise Value to EBITDA": report.get(
-                            "enterpriseValueMultiple"
-                        ),
-                        "Price to Fair Value": report.get("priceFairValue"),
-                    }
-                )
-        df = (
-            pd.DataFrame(ratios_data)
-            .set_index("Year")
-            .sort_index(ascending=False)
-        )
-        return df
-    except requests.exceptions.RequestException as e:
-        st.error(
-            f"Network error or invalid API response fetching financial ratios: {e}"
-        )
-        return None
-    except (KeyError, TypeError) as e:
-        st.error(
-            f"Data parsing error for financial ratios. Ticker might be invalid or data is missing: {e}"
-        )
-        return None
-    except Exception as e:
-        st.error(
-            f"An unexpected error occurred while fetching financial ratios: {e}"
-        )
-        return None
+    """, unsafe_allow_html=True)
 
 
 def main():
@@ -1062,9 +593,10 @@ def main():
     
     # Create sticky header
     create_sticky_header()
-    
-    # Inject sticky header JavaScript
-    inject_sticky_header_script()
+
+    # Check if user is logged in
+    if "logged_in" not in st.session_state:
+        st.session_state["logged_in"] = False
 
     # Header
     st.markdown(
@@ -1072,12 +604,22 @@ def main():
     <div class="main-header">
         <h1>📈 Financial Dashboard</h1>
         <p style="text-align: center; color: #666666; font-size: 1.1rem;">
-            Professional financial analysis with real-time data
+            Professional cryptocurrency analysis with real-time Binance data
         </p>
     </div>
     """,
         unsafe_allow_html=True,
     )
+
+    # Login section
+    if not st.session_state["logged_in"]:
+        st.markdown(
+            '<div class="login-section">',
+            unsafe_allow_html=True,
+        )
+        login_section()
+        st.markdown('</div>', unsafe_allow_html=True)
+        return
 
     # Initialize session state
     if "btn_clicked" not in st.session_state:
@@ -1091,90 +633,55 @@ def main():
     with col2:
         symbol_input = st.text_input(
             "",
-            placeholder="Enter stock ticker (e.g., AAPL, TSLA, MSFT)",
-            help="Enter a valid stock symbol to analyze",
+            placeholder="Enter crypto symbol (e.g., BTCUSDT, ETHUSDT, ADAUSDT)",
+            help="Enter a valid cryptocurrency symbol to analyze",
         ).upper()
 
         if st.button(
-            "🔍 Analyze Stock", on_click=callback, use_container_width=True
+            "🔍 Analyze Cryptocurrency", on_click=callback, use_container_width=True
         ):
             pass
 
     # Main dashboard
     if st.session_state["btn_clicked"]:
         if not symbol_input:
-            st.warning("⚠️ Please enter a stock ticker symbol.")
+            st.warning("⚠️ Please enter a cryptocurrency symbol.")
             return
+
+        client = st.session_state["binance_client"]
 
         try:
             # Fetch data with loading indicators
-            with st.spinner("📊 Fetching financial data..."):
-                company_data = get_company_info(symbol_input)
-                if company_data is None:
+            with st.spinner("📊 Fetching cryptocurrency data..."):
+                symbol_info = get_binance_symbol_info(client, symbol_input)
+                if symbol_info is None:
                     st.error(
-                        "❌ Failed to retrieve company data. Please check the ticker symbol."
+                        "❌ Failed to retrieve symbol data. Please check the symbol."
                     )
                     return
 
-                metrics_data = get_key_metrics(symbol_input)
-                income_data = get_income_statement(symbol_input)
-                performance_data = get_stock_price(symbol_input)
-                ratios_data = get_financial_ratios(symbol_input)
-                balance_sheet_data = get_balance_sheet(symbol_input)
-                cashflow_data = get_cash_flow(symbol_input)
+                klines_data = get_binance_klines(client, symbol_input)
+                trades_data = get_binance_trades(client, symbol_input)
+                depth_data = get_binance_depth(client, symbol_input)
 
-            # --- Check if essential data is available before proceeding ---
-            if metrics_data is None or metrics_data.empty:
-                st.warning(
-                    "Could not retrieve key metrics for this symbol. Some dashboard elements might be empty."
-                )
-            if income_data is None or income_data.empty:
-                st.warning(
-                    "Could not retrieve income statement for this symbol."
-                )
-            if performance_data is None or performance_data.empty:
-                st.warning(
-                    "Could not retrieve historical stock prices for this symbol. Chart will not be displayed."
-                )
-            if ratios_data is None or ratios_data.empty:
-                st.warning("Could not retrieve financial ratios for this symbol.")
-            if balance_sheet_data is None or balance_sheet_data.empty:
-                st.warning("Could not retrieve balance sheet for this symbol.")
-            if cashflow_data is None or cashflow_data.empty:
-                st.warning(
-                    "Could not retrieve cash flow statement for this symbol."
-                )
-
-            # Company Information Header - Updated to include logo inside
-            st.markdown("### 🏢 Company Overview")
-            
-            # Build company info HTML with logo inside
-            image_url = company_data.get("Image")
-            website_url = company_data.get("Website")
-            
-            logo_html = ""
-            if image_url:
-                logo_html = f"""
-                <div class="company-logo">
-                    <a href="{website_url if website_url else '#'}" target="_blank">
-                        <img src="{image_url}" alt="{company_data.get('Name', 'Logo')}" onerror="this.style.display='none'">
-                    </a>
-                </div>
-                """
-            
-            company_info_html = f"""
-            <div class="company-info">
-                <div class="company-text">
-                    <div class="company-name">{company_data.get('Name', 'N/A')}</div>
+            # Company Overview with logo inside
+            st.markdown("### 🏢 Cryptocurrency Overview")
+            st.markdown(f"""
+            <div class="company-overview">
+                <div class="company-info">
+                    <div class="company-name">{symbol_info['symbol']}</div>
                     <div class="company-details">
-                        {company_data.get('Sector', 'N/A')} • {company_data.get('Exchange', 'N/A')} • {company_data.get('Country', 'N/A')}
+                        {symbol_info['base_asset']} / {symbol_info['quote_asset']} • Status: {symbol_info['status']}
                     </div>
                 </div>
-                {logo_html}
+                <div class="company-logo">
+                    <img src="https://cryptologos.cc/logos/{symbol_info['base_asset'].lower()}-{symbol_info['base_asset'].lower()}-logo.png" 
+                         alt="{symbol_info['base_asset']} Logo"
+                         style="height: 80px; width: 80px; object-fit: contain;"
+                         onerror="this.src='https://via.placeholder.com/80x80?text={symbol_info['base_asset']}'">
+                </div>
             </div>
-            """
-            
-            st.markdown(company_info_html, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
 
             # Key Metrics Row
             st.markdown("### 📊 Key Metrics")
@@ -1182,260 +689,141 @@ def main():
 
             with col1:
                 st.metric(
-                    "💰 Stock Price",
-                    f"${company_data.get('Price', 0.0):.2f}",
-                    f"{company_data.get('Price change', 0.0):.2f}",
+                    "💰 Current Price",
+                    f"${symbol_info['price']:.4f}",
+                    f"{symbol_info['price_change']:+.4f} ({symbol_info['price_change_percent']:+.2f}%)",
                 )
 
             with col2:
-                if (
-                    metrics_data is not None
-                    and not metrics_data.empty
-                    and "Market Cap" in metrics_data.columns
-                ):
-                    st.metric(
-                        "🏦 Market Cap",
-                        millify(metrics_data["Market Cap"][0], precision=2),
-                        get_delta(metrics_data, "Market Cap"),
-                    )
-                else:
-                    st.metric("🏦 Market Cap", "N/A", "N/A")
+                st.metric(
+                    "📈 24h High",
+                    f"${symbol_info['high_24h']:.4f}",
+                    f"{((symbol_info['high_24h'] - symbol_info['price']) / symbol_info['price'] * 100):+.2f}%"
+                )
 
             with col3:
-                if (
-                    metrics_data is not None
-                    and not metrics_data.empty
-                    and "Working Capital" in metrics_data.columns
-                ):
-                    st.metric(
-                        "💼 Working Capital",
-                        millify(
-                            metrics_data["Working Capital"][0], precision=2
-                        ),
-                        get_delta(metrics_data, "Working Capital"),
-                    )
-                else:
-                    st.metric("💼 Working Capital", "N/A", "N/A")
+                st.metric(
+                    "📉 24h Low",
+                    f"${symbol_info['low_24h']:.4f}",
+                    f"{((symbol_info['low_24h'] - symbol_info['price']) / symbol_info['price'] * 100):+.2f}%"
+                )
 
             with col4:
-                if (
-                    metrics_data is not None
-                    and not metrics_data.empty
-                    and "P/E Ratio" in metrics_data.columns
-                ):
-                    st.metric(
-                        "📈 P/E Ratio",
-                        f"{metrics_data['P/E Ratio'][0]:.2f}",
-                        get_delta(metrics_data, "P/E Ratio"),
-                    )
-                else:
-                    st.metric("📈 P/E Ratio", "N/A", "N/A")
+                st.metric(
+                    "📊 24h Volume",
+                    millify(symbol_info['volume'], precision=2),
+                    f"Quote: {millify(symbol_info['quote_volume'], precision=2)}"
+                )
 
-            # Financial Performance Chart
-            st.markdown("### 💹 Stock Performance (5-Year Trend)")
+            # Price Chart
+            st.markdown("### 💹 Price Chart")
             with st.container():
                 st.markdown(
                     '<div class="chart-container">', unsafe_allow_html=True
                 )
-                if performance_data is not None and not performance_data.empty:
+                if klines_data is not None and not klines_data.empty:
                     fig = go.Figure()
-                    fig.add_trace(
-                        go.Scatter(
-                            x=performance_data.index,
-                            y=performance_data["Price"],
-                            mode="lines",
-                            name="Stock Price",
-                            line=dict(color="#667eea", width=3),
-                            fill="tozeroy",
-                            fillcolor="rgba(102, 126, 234, 0.1)",
-                        )
-                    )
+                    
+                    # Add candlestick chart
+                    fig.add_trace(go.Candlestick(
+                        x=klines_data.index,
+                        open=klines_data['open'],
+                        high=klines_data['high'],
+                        low=klines_data['low'],
+                        close=klines_data['close'],
+                        name=symbol_input
+                    ))
+                    
                     fig.update_layout(
-                        title="Monthly Adjusted Close Price",
+                        title=f"{symbol_input} Price Chart",
                         xaxis_title="Date",
-                        yaxis_title=f"Price ({company_data.get('Currency', 'USD')})",
+                        yaxis_title="Price (USDT)",
                         plot_bgcolor="rgba(0,0,0,0)",
                         paper_bgcolor="rgba(0,0,0,0)",
-                        font=dict(
-                            family="Inter, sans-serif"
-                        ),  # Let CSS handle color
+                        font=dict(family="Inter, sans-serif"),
                         xaxis=dict(gridcolor="rgba(102, 126, 234, 0.2)"),
                         yaxis=dict(gridcolor="rgba(102, 126, 234, 0.2)"),
                         hovermode="x unified",
                     )
                     st.plotly_chart(fig, use_container_width=True)
                 else:
-                    st.info(
-                        "No historical stock price data available for charting."
-                    )
+                    st.info("No price data available for charting.")
                 st.markdown("</div>", unsafe_allow_html=True)
 
-            # Financial Statements
-            st.markdown("### 📄 Financial Statements")
+            # Trading Data
+            st.markdown("### 📄 Trading Data")
 
-            def format_statement(df):
-                """Formats financial statement DataFrame for display"""
-                if df is None or df.empty:
-                    return pd.DataFrame().T  # Return an empty styled dataframe
-                formatted_df = df.T.applymap(
-                    lambda x: millify(x, precision=2)
-                    if isinstance(x, (int, float)) and abs(x) >= 1000
-                    else f"{x:,.2f}"
-                    if isinstance(x, (int, float))
-                    else x
-                )
-                return formatted_df.style.applymap(color_highlighter)
-
-            def to_csv(df):
-                """Converts DataFrame to CSV for download"""
-                if df is None:
-                    return b""  # Return empty bytes if df is None
-                output = BytesIO()
-                df.to_csv(output, index=True, encoding="utf-8")
-                return output.getvalue()
-
-            tab1, tab2, tab3 = st.tabs(
-                ["Income Statement", "Balance Sheet", "Cash Flow"]
-            )
+            tab1, tab2, tab3 = st.tabs(["Recent Trades", "Order Book", "Market Statistics"])
 
             with tab1:
-                st.markdown(
-                    create_info_card("Income Statement"),
-                    unsafe_allow_html=True,
-                )
-                if income_data is not None and not income_data.empty:
-                    st.dataframe(
-                        format_statement(income_data), use_container_width=True
+                st.markdown("#### Recent Trades")
+                if trades_data is not None and not trades_data.empty:
+                    display_trades = trades_data[['time', 'price', 'qty', 'isBuyerMaker']].head(20)
+                    display_trades['side'] = display_trades['isBuyerMaker'].apply(
+                        lambda x: '🔴 Sell' if x else '🟢 Buy'
                     )
-                    st.download_button(
-                        label="📥 Download as CSV",
-                        data=to_csv(income_data),
-                        file_name=f"{symbol_input}_income_statement.csv",
-                        mime="text/csv",
-                    )
+                    display_trades = display_trades.drop('isBuyerMaker', axis=1)
+                    display_trades.columns = ['Time', 'Price', 'Quantity', 'Side']
+                    st.dataframe(display_trades, use_container_width=True)
                 else:
-                    st.info("Income Statement data not available.")
+                    st.info("No recent trades data available.")
 
             with tab2:
-                st.markdown(
-                    create_info_card("Balance Sheet"), unsafe_allow_html=True
-                )
-                if balance_sheet_data is not None and not balance_sheet_data.empty:
-                    st.dataframe(
-                        format_statement(balance_sheet_data),
-                        use_container_width=True,
-                    )
-                    st.download_button(
-                        label="📥 Download as CSV",
-                        data=to_csv(balance_sheet_data),
-                        file_name=f"{symbol_input}_balance_sheet.csv",
-                        mime="text/csv",
-                    )
+                st.markdown("#### Order Book")
+                if depth_data is not None:
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.markdown("**🟢 Bids (Buy Orders)**")
+                        bids = depth_data['bids'].head(10)
+                        bids.columns = ['Price', 'Quantity']
+                        st.dataframe(bids, use_container_width=True)
+                    
+                    with col2:
+                        st.markdown("**🔴 Asks (Sell Orders)**")
+                        asks = depth_data['asks'].head(10)
+                        asks.columns = ['Price', 'Quantity']
+                        st.dataframe(asks, use_container_width=True)
                 else:
-                    st.info("Balance Sheet data not available.")
+                    st.info("No order book data available.")
 
             with tab3:
-                st.markdown(
-                    create_info_card("Cash Flow Statement"),
-                    unsafe_allow_html=True,
-                )
-                if cashflow_data is not None and not cashflow_data.empty:
-                    st.dataframe(
-                        format_statement(cashflow_data),
-                        use_container_width=True,
-                    )
-                    st.download_button(
-                        label="📥 Download as CSV",
-                        data=to_csv(cashflow_data),
-                        file_name=f"{symbol_input}_cash_flow.csv",
-                        mime="text/csv",
-                    )
-                else:
-                    st.info("Cash Flow Statement data not available.")
-
-            # Financial Ratios
-            st.markdown("### 🧮 Financial Ratios Analysis")
-
-            if ratios_data is not None and not ratios_data.empty:
-                ratio_categories = {
-                    "Profitability": [
-                        "Gross Profit Margin",
-                        "Operating Profit Margin",
-                        "Net Profit Margin",
-                        "Return on Assets",
-                        "Return on Equity",
+                st.markdown("#### Market Statistics")
+                stats_data = {
+                    'Metric': [
+                        'Current Price',
+                        '24h Change',
+                        '24h High',
+                        '24h Low',
+                        '24h Volume',
+                        '24h Quote Volume',
+                        'Trade Count',
+                        'Bid Price',
+                        'Ask Price',
+                        'Spread'
                     ],
-                    "Liquidity": ["Current Ratio", "Quick Ratio", "Cash Ratio"],
-                    "Solvency": [
-                        "Debt Ratio",
-                        "Debt Equity Ratio",
-                        "Interest Coverage",
-                    ],
-                    "Efficiency": [
-                        "Asset Turnover",
-                        "Inventory Turnover",
-                        "Operating Cycle",
-                        "Cash Conversion Cycle",
-                    ],
-                    "Valuation": [
-                        "Price to Earnings Ratio",
-                        "Price to Book Value Ratio",
-                        "Price to Sales Ratio",
-                        "Dividend Yield",
-                    ],
-                }
-
-                # Filter categories to only include ratios present in the fetched data
-                available_categories = {}
-                for category, ratios in ratio_categories.items():
-                    available_ratios = [
-                        r for r in ratios if r in ratios_data.columns
+                    'Value': [
+                        f"${symbol_info['price']:.4f}",
+                        f"{symbol_info['price_change']:+.4f} ({symbol_info['price_change_percent']:+.2f}%)",
+                        f"${symbol_info['high_24h']:.4f}",
+                        f"${symbol_info['low_24h']:.4f}",
+                        f"{symbol_info['volume']:.2f}",
+                        f"{symbol_info['quote_volume']:.2f}",
+                        f"{symbol_info['count']:,}",
+                        f"${symbol_info['bid_price']:.4f}",
+                        f"${symbol_info['ask_price']:.4f}",
+                        f"${symbol_info['ask_price'] - symbol_info['bid_price']:.4f}"
                     ]
-                    if available_ratios:
-                        available_categories[category] = available_ratios
-
-                if not available_categories:
-                    st.info(
-                        "No financial ratios available for display under any category."
-                    )
-                else:
-                    col1, col2 = st.columns([1, 3])
-                    with col1:
-                        selected_category = st.selectbox(
-                            "Select Ratio Category",
-                            options=list(available_categories.keys()),
-                            index=0,
-                            label_visibility="collapsed",
-                        )
-
-                    st.markdown(f"#### {selected_category} Ratios")
-                    filtered_ratios = ratios_data[
-                        available_categories[selected_category]
-                    ].T
-                    st.dataframe(
-                        filtered_ratios.style.format("{:.2f}").applymap(
-                            color_highlighter
-                        ),
-                        use_container_width=True,
-                    )
-
-                    st.download_button(
-                        label="📥 Download All Ratios as CSV",
-                        data=to_csv(ratios_data),
-                        file_name=f"{symbol_input}_financial_ratios.csv",
-                        mime="text/csv",
-                        use_container_width=True,
-                    )
-            else:
-                st.info("Financial Ratios data not available for this symbol.")
+                }
+                
+                stats_df = pd.DataFrame(stats_data)
+                st.dataframe(stats_df, use_container_width=True)
 
         except Exception as e:
-            st.error(
-                f"An unexpected error occurred during dashboard generation: {e}"
-            )
-            st.warning("Please verify the ticker symbol or try again later.")
+            st.error(f"An unexpected error occurred: {str(e)}")
+            st.warning("Please verify the symbol or try again later.")
 
-    # Custom Footer - Made thinner
+    # Custom thinner Footer
     st.markdown(
         """
     <div class="custom-footer">
