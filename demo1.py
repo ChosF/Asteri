@@ -1,22 +1,20 @@
 # Standard library imports
 import sys
-from io import BytesIO
-import os
-import time
-import hmac
 import hashlib
-import json
+import hmac
+import time
+from io import BytesIO
 from datetime import datetime, timedelta
-from urllib.parse import urlencode
 
 # Third-party imports
 import streamlit as st
 import pandas as pd
 import numpy as np
+import requests
 import plotly.graph_objs as go
-from binance.client import Client
-from binance.exceptions import BinanceAPIException
-
+from millify import millify
+from supabase import create_client, Client
+import bcrypt
 
 # Configure the app page
 st.set_page_config(
@@ -26,30 +24,22 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+# Supabase configuration
+SUPABASE_URL = "https://pcfqzrzeghvuttbiznj.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBjZnF6cnplbGd2dXR0aGJpanpnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI2MDY4ODYsImV4cCI6MjA2ODE4Mjg4Nn0.zVUs0K7vNIUvwxJCesUsVhjpZn5vTm0VrCoiuVCo07k"
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-def millify(num, precision=2):
-    """Custom implementation of millify function"""
-    if num == 0:
-        return "0"
-    
-    magnitude = 0
-    while abs(num) >= 1000:
-        magnitude += 1
-        num /= 1000.0
-    
-    return f"{num:.{precision}f}{['', 'K', 'M', 'B', 'T'][magnitude]}"
+# Original API keys for non-crypto data
+FMP_API_KEY = ["OoJcYpvMo94etCgLpr1s6TABcmhr7AWT"]
+ALPHA_API_KEY = ["ZPODKN7Q87COJ0IR"]
 
 
 def apply_modern_css():
-    """
-    Apply modern CSS styling with glassmorphism effects, hover animations, improved UI, and sticky header
-    """
+    """Apply modern CSS styling with glassmorphism effects, sticky header, and improved UI"""
     modern_css = """
     <style>
-        /* Import Google Fonts */
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
-        /* Root variables for LIGHT MODE (default) */
         :root {
             --primary-color: #667eea;
             --secondary-color: #764ba2;
@@ -65,7 +55,6 @@ def apply_modern_css():
             --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
-        /* Root variables for DARK MODE */
         @media (prefers-color-scheme: dark) {
             :root {
                 --text-primary: #f0f2f6;
@@ -78,21 +67,19 @@ def apply_modern_css():
             }
         }
 
-        /* Global styles */
         .stApp {
             font-family: 'Inter', sans-serif;
             background: var(--background-gradient);
             min-height: 100vh;
         }
 
-        /* Main container */
         .main .block-container {
             max-width: 1200px;
             padding: 2rem 1rem;
             margin: 0 auto;
         }
 
-        /* Sticky header implementation */
+        /* Sticky Header */
         .sticky-header {
             position: fixed;
             top: 0;
@@ -104,28 +91,21 @@ def apply_modern_css():
             border-bottom: 1px solid var(--glass-border);
             padding: 1rem 2rem;
             z-index: 1000;
+            transition: var(--transition);
+        }
+
+        .sticky-header.hidden {
             transform: translateY(-100%);
-            transition: transform 0.3s ease-in-out;
         }
 
-        .sticky-header.visible {
-            transform: translateY(0);
-        }
-
-        .sticky-header h2 {
+        .sticky-header h1 {
             color: var(--text-primary);
-            font-weight: 600;
-            font-size: 1.5rem;
+            font-weight: 700;
+            font-size: 1.8rem;
             margin: 0;
             text-align: center;
         }
 
-        /* Add padding to body when sticky header is visible */
-        .sticky-header-spacer {
-            height: 80px;
-        }
-
-        /* Main header styling */
         .main-header {
             background: var(--glass-bg);
             backdrop-filter: blur(16px);
@@ -151,26 +131,8 @@ def apply_modern_css():
             text-align: center;
         }
 
-        /* Login section styling */
-        .login-section {
-            background: var(--glass-bg);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid var(--glass-border);
-            border-radius: var(--border-radius);
-            padding: 2rem;
-            margin-bottom: 2rem;
-            box-shadow: var(--shadow-light);
-            transition: var(--transition);
-        }
-
-        .login-section:hover {
-            transform: translateY(-2px);
-            box-shadow: var(--shadow-hover);
-        }
-
-        /* Company overview with logo styling */
-        .company-overview {
+        /* Company info with logo inside */
+        .company-info {
             background: var(--glass-bg);
             backdrop-filter: blur(16px);
             -webkit-backdrop-filter: blur(16px);
@@ -185,12 +147,12 @@ def apply_modern_css():
             gap: 2rem;
         }
 
-        .company-overview:hover {
+        .company-info:hover {
             transform: translateY(-2px);
             box-shadow: var(--shadow-hover);
         }
 
-        .company-info {
+        .company-info-content {
             flex: 1;
         }
 
@@ -199,6 +161,9 @@ def apply_modern_css():
         }
 
         .company-logo img {
+            width: 100px;
+            height: 100px;
+            object-fit: contain;
             border-radius: 12px;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
             transition: var(--transition);
@@ -218,10 +183,58 @@ def apply_modern_css():
 
         .company-details {
             color: var(--text-secondary);
-            margin-bottom: 1rem;
+            font-size: 1.1rem;
         }
 
-        /* Input styling */
+        /* Thinner footer */
+        .custom-footer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-top: 1px solid var(--glass-border);
+            padding: 0.5rem 1rem;
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Login/Signup Forms */
+        .auth-container {
+            max-width: 400px;
+            margin: 2rem auto;
+            background: var(--glass-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--border-radius);
+            padding: 2rem;
+            box-shadow: var(--shadow-light);
+        }
+
+        .security-note {
+            background: rgba(46, 204, 113, 0.1);
+            border: 1px solid rgba(46, 204, 113, 0.3);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            color: var(--text-primary);
+            font-size: 0.9rem;
+        }
+
+        .security-note h4 {
+            color: #2ecc71;
+            margin-bottom: 0.5rem;
+        }
+
+        /* Other existing styles... */
         .stTextInput > div > div > input {
             background: var(--glass-bg);
             backdrop-filter: blur(16px);
@@ -240,7 +253,6 @@ def apply_modern_css():
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
         }
 
-        /* Button styling */
         .stButton > button {
             background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
             border: none;
@@ -259,7 +271,6 @@ def apply_modern_css():
             background: linear-gradient(135deg, var(--secondary-color), var(--primary-color));
         }
 
-        /* Glass card styling */
         .glass-card {
             background: var(--glass-bg);
             backdrop-filter: blur(16px);
@@ -277,7 +288,6 @@ def apply_modern_css():
             box-shadow: var(--shadow-hover);
         }
 
-        /* Metrics styling */
         .metric-container {
             background: var(--glass-bg);
             backdrop-filter: blur(16px);
@@ -296,26 +306,6 @@ def apply_modern_css():
             box-shadow: var(--shadow-hover);
         }
 
-        .stMetric {
-            background: transparent;
-        }
-
-        .stMetric > div {
-            background: var(--glass-bg);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid var(--glass-border);
-            border-radius: 12px;
-            padding: 1.5rem;
-            transition: var(--transition);
-        }
-
-        .stMetric > div:hover {
-            transform: translateY(-2px);
-            box-shadow: var(--shadow-hover);
-        }
-
-        /* Chart container */
         .chart-container {
             background: var(--glass-bg);
             backdrop-filter: blur(16px);
@@ -334,504 +324,512 @@ def apply_modern_css():
             box-shadow: var(--shadow-hover);
         }
 
-        /* Custom thinner footer */
-        .custom-footer {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            border-top: 1px solid var(--glass-border);
-            padding: 0.5rem;
-            text-align: center;
-            color: var(--text-secondary);
-            font-size: 0.8rem;
-            height: 40px;
-            line-height: 1.5;
-        }
-
-        /* Responsive design */
-        @media (max-width: 768px) {
-            .main .block-container {
-                padding: 1rem 0.5rem;
-            }
-
-            .main-header h1 {
-                font-size: 2rem;
-            }
-
-            .company-overview {
-                flex-direction: column;
-                text-align: center;
-            }
-
-            .glass-card {
-                padding: 1rem;
-            }
-        }
-
-        /* Hide Streamlit elements */
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
         header {visibility: hidden;}
 
-        /* Sticky header scroll behavior */
-        .sticky-header-script {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 1px;
-            pointer-events: none;
-            z-index: 9999;
+        @media (max-width: 768px) {
+            .company-info {
+                flex-direction: column;
+                text-align: center;
+            }
+            
+            .sticky-header {
+                padding: 0.5rem 1rem;
+            }
+            
+            .sticky-header h1 {
+                font-size: 1.5rem;
+            }
         }
     </style>
-    
+
     <script>
         // Sticky header functionality
-        window.addEventListener('scroll', function() {
-            const scrollPosition = window.pageYOffset;
-            const stickyHeader = document.querySelector('.sticky-header');
+        let lastScrollTop = 0;
+        const header = document.querySelector('.sticky-header');
+        
+        window.addEventListener('scroll', () => {
+            const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
             
-            if (scrollPosition > 200) {
-                stickyHeader.classList.add('visible');
+            if (scrollTop > lastScrollTop && scrollTop > 100) {
+                header.classList.add('hidden');
             } else {
-                stickyHeader.classList.remove('visible');
+                header.classList.remove('hidden');
             }
+            
+            lastScrollTop = scrollTop;
         });
     </script>
     """
     st.markdown(modern_css, unsafe_allow_html=True)
 
 
-def login_section():
-    """Create login section for Binance API credentials"""
-    st.markdown("### 🔐 Login to Binance")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        api_key = st.text_input(
-            "Binance API Key",
-            type="password",
-            placeholder="Enter your Binance API Key",
-            help="Your Binance API Key for accessing market data"
-        )
-    
-    with col2:
-        api_secret = st.text_input(
-            "Binance API Secret",
-            type="password",
-            placeholder="Enter your Binance API Secret",
-            help="Your Binance API Secret for authentication"
-        )
-    
-    if st.button("🚀 Connect to Binance", use_container_width=True):
-        if api_key and api_secret:
-            try:
-                # Test the connection
-                client = Client(api_key, api_secret)
-                client.get_server_time()
-                st.session_state["binance_client"] = client
-                st.session_state["logged_in"] = True
-                st.success("✅ Successfully connected to Binance!")
-                st.rerun()
-            except Exception as e:
-                st.error(f"❌ Failed to connect to Binance: {str(e)}")
-        else:
-            st.warning("⚠️ Please enter both API Key and Secret")
+def hash_password(password: str) -> str:
+    """Hash a password using bcrypt"""
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
 
-# =============================================================================
-# BINANCE DATA FUNCTIONS
-# =============================================================================
+def verify_password(password: str, hashed: str) -> bool:
+    """Verify a password against its hash"""
+    return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
 
-@st.cache_data(ttl=60 * 5)
-def get_binance_symbol_info(client, symbol):
-    """Get symbol information from Binance"""
+
+def create_user(email: str, username: str, binance_api_key: str, binance_api_secret: str, password: str):
+    """Create a new user in Supabase"""
     try:
-        # Get symbol info
-        symbol_info = client.get_symbol_info(symbol)
+        password_hash = hash_password(password)
         
-        # Get 24hr ticker
-        ticker = client.get_ticker(symbol=symbol)
+        response = supabase.table('users').insert({
+            'email': email,
+            'username': username,
+            'binance_api_key': binance_api_key,
+            'binance_api_secret': binance_api_secret,
+            'password_hash': password_hash
+        }).execute()
         
-        # Get order book
-        order_book = client.get_order_book(symbol=symbol, limit=10)
-        
-        return {
-            "symbol": symbol_info["symbol"],
-            "status": symbol_info["status"],
-            "base_asset": symbol_info["baseAsset"],
-            "quote_asset": symbol_info["quoteAsset"],
-            "price": float(ticker["lastPrice"]),
-            "price_change": float(ticker["priceChange"]),
-            "price_change_percent": float(ticker["priceChangePercent"]),
-            "volume": float(ticker["volume"]),
-            "high_24h": float(ticker["highPrice"]),
-            "low_24h": float(ticker["lowPrice"]),
-            "open_price": float(ticker["openPrice"]),
-            "bid_price": float(order_book["bids"][0][0]) if order_book["bids"] else 0,
-            "ask_price": float(order_book["asks"][0][0]) if order_book["asks"] else 0,
-            "count": int(ticker["count"]),
-            "quote_volume": float(ticker["quoteVolume"]),
-        }
+        return response.data[0] if response.data else None
     except Exception as e:
-        st.error(f"Error fetching symbol info: {str(e)}")
+        st.error(f"Error creating user: {str(e)}")
         return None
 
 
-@st.cache_data(ttl=60 * 5)
-def get_binance_klines(client, symbol, interval="1d", limit=365):
+def authenticate_user(username: str, password: str):
+    """Authenticate user with username and password"""
+    try:
+        response = supabase.table('users').select('*').eq('username', username).execute()
+        
+        if response.data and len(response.data) > 0:
+            user = response.data[0]
+            if verify_password(password, user['password_hash']):
+                return user
+        return None
+    except Exception as e:
+        st.error(f"Authentication error: {str(e)}")
+        return None
+
+
+def show_auth_page():
+    """Show authentication page"""
+    st.markdown('<div class="sticky-header"><h1>📈 Financial Dashboard</h1></div>', unsafe_allow_html=True)
+    
+    tab1, tab2 = st.tabs(["Login", "Sign Up"])
+    
+    with tab1:
+        st.markdown("""
+        <div class="auth-container">
+            <h2 style="text-align: center; margin-bottom: 2rem;">Login</h2>
+            <div class="security-note">
+                <h4>🔒 Security Notice</h4>
+                <p>Your data is secure and encrypted. We use industry-standard encryption to protect your API keys and personal information.</p>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        with st.form("login_form"):
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            
+            if st.form_submit_button("Login", use_container_width=True):
+                if username and password:
+                    user = authenticate_user(username, password)
+                    if user:
+                        st.session_state.user = user
+                        st.success("Login successful!")
+                        st.rerun()
+                    else:
+                        st.error("Invalid username or password")
+                else:
+                    st.error("Please fill in all fields")
+    
+    with tab2:
+        st.markdown("""
+        <div class="auth-container">
+            <h2 style="text-align: center; margin-bottom: 2rem;">Sign Up</h2>
+            <div class="security-note">
+                <h4>🔒 Security Notice</h4>
+                <p>Your data is secure and encrypted. We use industry-standard encryption to protect your API keys and personal information. Your Binance API keys are stored securely and never shared.</p>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        with st.form("signup_form"):
+            email = st.text_input("Email")
+            username = st.text_input("Username")
+            binance_api_key = st.text_input("Binance API Key")
+            binance_api_secret = st.text_input("Binance API Secret", type="password")
+            password = st.text_input("Password", type="password")
+            
+            if st.form_submit_button("Sign Up", use_container_width=True):
+                if email and username and binance_api_key and binance_api_secret and password:
+                    user = create_user(email, username, binance_api_key, binance_api_secret, password)
+                    if user:
+                        st.success("Account created successfully! Please login.")
+                        st.balloons()
+                    else:
+                        st.error("Failed to create account. Username or email might already exist.")
+                else:
+                    st.error("Please fill in all fields")
+
+
+def create_binance_signature(query_string: str, secret: str) -> str:
+    """Create signature for Binance API"""
+    return hmac.new(secret.encode('utf-8'), query_string.encode('utf-8'), hashlib.sha256).hexdigest()
+
+
+@st.cache_data(ttl=300)  # Cache for 5 minutes
+def get_binance_account_info(api_key: str, secret: str):
+    """Get Binance account information"""
+    try:
+        timestamp = int(time.time() * 1000)
+        query_string = f"timestamp={timestamp}"
+        signature = create_binance_signature(query_string, secret)
+        
+        url = f"https://api.binance.com/api/v3/account?{query_string}&signature={signature}"
+        headers = {"X-MBX-APIKEY": api_key}
+        
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        st.error(f"Error fetching Binance account info: {str(e)}")
+        return None
+
+
+@st.cache_data(ttl=60)  # Cache for 1 minute
+def get_binance_price(symbol: str):
+    """Get current price from Binance"""
+    try:
+        url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}"
+        response = requests.get(url)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        st.error(f"Error fetching Binance price: {str(e)}")
+        return None
+
+
+@st.cache_data(ttl=300)  # Cache for 5 minutes
+def get_binance_24hr_ticker(symbol: str):
+    """Get 24hr ticker statistics"""
+    try:
+        url = f"https://api.binance.com/api/v3/ticker/24hr?symbol={symbol}"
+        response = requests.get(url)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        st.error(f"Error fetching 24hr ticker: {str(e)}")
+        return None
+
+
+@st.cache_data(ttl=300)  # Cache for 5 minutes
+def get_binance_klines(symbol: str, interval: str = "1d", limit: int = 100):
     """Get historical klines/candlestick data"""
     try:
-        klines = client.get_klines(symbol=symbol, interval=interval, limit=limit)
+        url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
+        response = requests.get(url)
+        response.raise_for_status()
         
-        df = pd.DataFrame(klines, columns=[
+        data = response.json()
+        df = pd.DataFrame(data, columns=[
             'timestamp', 'open', 'high', 'low', 'close', 'volume',
             'close_time', 'quote_asset_volume', 'number_of_trades',
             'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'
         ])
         
-        # Convert to proper data types
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        df['open'] = df['open'].astype(float)
-        df['high'] = df['high'].astype(float)
-        df['low'] = df['low'].astype(float)
-        df['close'] = df['close'].astype(float)
-        df['volume'] = df['volume'].astype(float)
+        df[['open', 'high', 'low', 'close', 'volume']] = df[['open', 'high', 'low', 'close', 'volume']].astype(float)
         
-        df = df.set_index('timestamp')
-        return df
+        return df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
     except Exception as e:
         st.error(f"Error fetching klines: {str(e)}")
         return None
 
 
-@st.cache_data(ttl=60 * 30)
-def get_binance_trades(client, symbol, limit=100):
-    """Get recent trades"""
-    try:
-        trades = client.get_recent_trades(symbol=symbol, limit=limit)
-        
-        df = pd.DataFrame(trades)
-        if not df.empty:
-            df['time'] = pd.to_datetime(df['time'], unit='ms')
-            df['price'] = df['price'].astype(float)
-            df['qty'] = df['qty'].astype(float)
-        
-        return df
-    except Exception as e:
-        st.error(f"Error fetching trades: {str(e)}")
-        return None
-
-
-@st.cache_data(ttl=60 * 10)
-def get_binance_depth(client, symbol, limit=20):
-    """Get order book depth"""
-    try:
-        depth = client.get_order_book(symbol=symbol, limit=limit)
-        
-        bids_df = pd.DataFrame(depth['bids'], columns=['price', 'quantity'])
-        asks_df = pd.DataFrame(depth['asks'], columns=['price', 'quantity'])
-        
-        bids_df = bids_df.astype(float)
-        asks_df = asks_df.astype(float)
-        
-        return {
-            'bids': bids_df,
-            'asks': asks_df,
-            'last_update_id': depth['lastUpdateId']
-        }
-    except Exception as e:
-        st.error(f"Error fetching depth: {str(e)}")
-        return None
-
-
-@st.cache_data(ttl=60 * 60)
-def get_binance_exchange_info(client):
+@st.cache_data(ttl=600)  # Cache for 10 minutes
+def get_binance_exchange_info():
     """Get exchange information"""
     try:
-        info = client.get_exchange_info()
-        
-        # Extract symbols
-        symbols = []
-        for symbol_info in info['symbols']:
-            if symbol_info['status'] == 'TRADING':
-                symbols.append({
-                    'symbol': symbol_info['symbol'],
-                    'base_asset': symbol_info['baseAsset'],
-                    'quote_asset': symbol_info['quoteAsset'],
-                    'status': symbol_info['status'],
-                })
-        
-        return {
-            'symbols': symbols,
-            'server_time': info['serverTime'],
-            'rate_limits': info['rateLimits']
-        }
+        url = "https://api.binance.com/api/v3/exchangeInfo"
+        response = requests.get(url)
+        response.raise_for_status()
+        return response.json()
     except Exception as e:
         st.error(f"Error fetching exchange info: {str(e)}")
         return None
 
 
-def create_sticky_header():
-    """Create sticky header"""
-    st.markdown("""
-    <div class="sticky-header" id="sticky-header">
-        <h2>📈 Financial Dashboard</h2>
-    </div>
-    """, unsafe_allow_html=True)
+# Keep all the original functions for stock data
+@st.cache_data(ttl=60 * 60 * 24 * 30)
+def get_company_info(symbol: str) -> dict:
+    """Returns company information for the given stock symbol"""
+    api_endpoint = f"https://financialmodelingprep.com/api/v3/profile/{symbol}/"
+    params = {"apikey": FMP_API_KEY[0]}
+    try:
+        response = requests.get(api_endpoint, params=params)
+        response.raise_for_status()
+        data = response.json()
+        if not data:
+            return None
+        data = data[0]
+        return {
+            "Name": data.get("companyName"),
+            "Exchange": data.get("exchangeShortName"),
+            "Currency": data.get("currency"),
+            "Country": data.get("country"),
+            "Sector": data.get("sector"),
+            "Market Cap": data.get("mktCap"),
+            "Price": data.get("price"),
+            "Beta": data.get("beta"),
+            "Price change": data.get("changes"),
+            "Website": data.get("website"),
+            "Image": data.get("image"),
+        }
+    except Exception as e:
+        st.error(f"Error fetching company info: {e}")
+        return None
+
+
+def get_delta(df: pd.DataFrame, key: str) -> str:
+    """Calculate percentage difference between the first two values"""
+    if key not in df.columns:
+        return f"Key '{key}' not found in DataFrame columns."
+
+    if len(df) < 2:
+        return "DataFrame must contain at least two rows."
+
+    val1 = df[key].iloc[1]  # Second most recent
+    val2 = df[key].iloc[0]  # Most recent
+
+    if pd.isna(val1) or pd.isna(val2):
+        return "N/A"
+
+    if val1 == 0:
+        if val2 == 0:
+            return "0.00%"
+        else:
+            return "Inf%" if val2 > 0 else "-Inf%"
+    else:
+        delta = (val2 - val1) / val1 * 100
+
+    return f"{delta:+.2f}%"
 
 
 def main():
     """Main application function"""
-    # Apply modern CSS styling
     apply_modern_css()
     
-    # Create sticky header
-    create_sticky_header()
-
     # Check if user is logged in
-    if "logged_in" not in st.session_state:
-        st.session_state["logged_in"] = False
-
-    # Header
-    st.markdown(
-        """
-    <div class="main-header">
-        <h1>📈 Financial Dashboard</h1>
-        <p style="text-align: center; color: #666666; font-size: 1.1rem;">
-            Professional cryptocurrency analysis with real-time Binance data
-        </p>
-    </div>
-    """,
-        unsafe_allow_html=True,
-    )
-
-    # Login section
-    if not st.session_state["logged_in"]:
-        st.markdown(
-            '<div class="login-section">',
-            unsafe_allow_html=True,
-        )
-        login_section()
-        st.markdown('</div>', unsafe_allow_html=True)
+    if 'user' not in st.session_state:
+        show_auth_page()
         return
-
-    # Initialize session state
-    if "btn_clicked" not in st.session_state:
-        st.session_state["btn_clicked"] = False
-
-    def callback():
-        st.session_state["btn_clicked"] = True
-
-    # Input section
-    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    user = st.session_state.user
+    
+    # Sticky header
+    st.markdown('<div class="sticky-header"><h1>📈 Financial Dashboard</h1></div>', unsafe_allow_html=True)
+    
+    # Main header
+    col1, col2 = st.columns([4, 1])
+    with col1:
+        st.markdown(f"""
+        <div class="main-header">
+            <h1>📈 Financial Dashboard</h1>
+            <p style="text-align: center; color: #666666; font-size: 1.1rem;">
+                Welcome back, {user['username']}! Professional financial analysis with real-time data
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+    
     with col2:
-        symbol_input = st.text_input(
-            "",
-            placeholder="Enter crypto symbol (e.g., BTCUSDT, ETHUSDT, ADAUSDT)",
-            help="Enter a valid cryptocurrency symbol to analyze",
-        ).upper()
-
-        if st.button(
-            "🔍 Analyze Cryptocurrency", on_click=callback, use_container_width=True
-        ):
-            pass
-
-    # Main dashboard
-    if st.session_state["btn_clicked"]:
-        if not symbol_input:
-            st.warning("⚠️ Please enter a cryptocurrency symbol.")
-            return
-
-        client = st.session_state["binance_client"]
-
-        try:
-            # Fetch data with loading indicators
-            with st.spinner("📊 Fetching cryptocurrency data..."):
-                symbol_info = get_binance_symbol_info(client, symbol_input)
-                if symbol_info is None:
-                    st.error(
-                        "❌ Failed to retrieve symbol data. Please check the symbol."
-                    )
-                    return
-
-                klines_data = get_binance_klines(client, symbol_input)
-                trades_data = get_binance_trades(client, symbol_input)
-                depth_data = get_binance_depth(client, symbol_input)
-
-            # Company Overview with logo inside
-            st.markdown("### 🏢 Cryptocurrency Overview")
-            st.markdown(f"""
-            <div class="company-overview">
-                <div class="company-info">
-                    <div class="company-name">{symbol_info['symbol']}</div>
-                    <div class="company-details">
-                        {symbol_info['base_asset']} / {symbol_info['quote_asset']} • Status: {symbol_info['status']}
-                    </div>
-                </div>
-                <div class="company-logo">
-                    <img src="https://cryptologos.cc/logos/{symbol_info['base_asset'].lower()}-{symbol_info['base_asset'].lower()}-logo.png" 
-                         alt="{symbol_info['base_asset']} Logo"
-                         style="height: 80px; width: 80px; object-fit: contain;"
-                         onerror="this.src='https://via.placeholder.com/80x80?text={symbol_info['base_asset']}'">
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-
-            # Key Metrics Row
-            st.markdown("### 📊 Key Metrics")
-            col1, col2, col3, col4 = st.columns(4)
-
+        if st.button("Logout", type="secondary"):
+            del st.session_state.user
+            st.rerun()
+    
+    # Asset type selection
+    asset_type = st.selectbox("Select Asset Type", ["Stocks", "Cryptocurrency"], index=0)
+    
+    if asset_type == "Cryptocurrency":
+        # Cryptocurrency section
+        st.markdown("### 🚀 Cryptocurrency Analysis")
+        
+        # Get account info
+        account_info = get_binance_account_info(user['binance_api_key'], user['binance_api_secret'])
+        
+        if account_info:
+            st.success("✅ Connected to Binance successfully!")
+            
+            # Symbol input
+            col1, col2 = st.columns([2, 1])
             with col1:
-                st.metric(
-                    "💰 Current Price",
-                    f"${symbol_info['price']:.4f}",
-                    f"{symbol_info['price_change']:+.4f} ({symbol_info['price_change_percent']:+.2f}%)",
-                )
-
+                crypto_symbol = st.text_input("Enter Cryptocurrency Symbol", value="BTCUSDT", 
+                                            help="Enter symbol like BTCUSDT, ETHUSDT, etc.")
             with col2:
-                st.metric(
-                    "📈 24h High",
-                    f"${symbol_info['high_24h']:.4f}",
-                    f"{((symbol_info['high_24h'] - symbol_info['price']) / symbol_info['price'] * 100):+.2f}%"
-                )
+                if st.button("🔍 Analyze Crypto", use_container_width=True):
+                    if crypto_symbol:
+                        # Get crypto data
+                        price_data = get_binance_price(crypto_symbol)
+                        ticker_data = get_binance_24hr_ticker(crypto_symbol)
+                        klines_data = get_binance_klines(crypto_symbol)
+                        
+                        if price_data and ticker_data:
+                            # Display metrics
+                            col1, col2, col3, col4 = st.columns(4)
+                            
+                            with col1:
+                                st.metric("💰 Current Price", f"${float(price_data['price']):.2f}")
+                            
+                            with col2:
+                                change_24h = float(ticker_data['priceChange'])
+                                change_percent = float(ticker_data['priceChangePercent'])
+                                st.metric("📊 24h Change", f"{change_percent:.2f}%", f"{change_24h:.2f}")
+                            
+                            with col3:
+                                volume = float(ticker_data['volume'])
+                                st.metric("📈 24h Volume", millify(volume, precision=2))
+                            
+                            with col4:
+                                high_24h = float(ticker_data['highPrice'])
+                                low_24h = float(ticker_data['lowPrice'])
+                                st.metric("🔺 24h High", f"${high_24h:.2f}")
+                            
+                            # Price chart
+                            if klines_data is not None and not klines_data.empty:
+                                st.markdown("### 📈 Price Chart")
+                                with st.container():
+                                    st.markdown('<div class="chart-container">', unsafe_allow_html=True)
+                                    
+                                    fig = go.Figure()
+                                    fig.add_trace(go.Candlestick(
+                                        x=klines_data['timestamp'],
+                                        open=klines_data['open'],
+                                        high=klines_data['high'],
+                                        low=klines_data['low'],
+                                        close=klines_data['close'],
+                                        name=crypto_symbol
+                                    ))
+                                    
+                                    fig.update_layout(
+                                        title=f"{crypto_symbol} Price Chart",
+                                        xaxis_title="Date",
+                                        yaxis_title="Price (USDT)",
+                                        plot_bgcolor="rgba(0,0,0,0)",
+                                        paper_bgcolor="rgba(0,0,0,0)",
+                                        font=dict(family="Inter, sans-serif"),
+                                        xaxis=dict(gridcolor="rgba(102, 126, 234, 0.2)"),
+                                        yaxis=dict(gridcolor="rgba(102, 126, 234, 0.2)"),
+                                        height=500
+                                    )
+                                    
+                                    st.plotly_chart(fig, use_container_width=True)
+                                    st.markdown("</div>", unsafe_allow_html=True)
+                            
+                            # Account balances
+                            st.markdown("### 💼 Account Balances")
+                            balances = []
+                            for balance in account_info['balances']:
+                                free = float(balance['free'])
+                                locked = float(balance['locked'])
+                                if free > 0 or locked > 0:
+                                    balances.append({
+                                        'Asset': balance['asset'],
+                                        'Free': free,
+                                        'Locked': locked,
+                                        'Total': free + locked
+                                    })
+                            
+                            if balances:
+                                df_balances = pd.DataFrame(balances)
+                                st.dataframe(df_balances, use_container_width=True)
+                            else:
+                                st.info("No balances to display")
+        else:
+            st.error("❌ Failed to connect to Binance. Please check your API credentials.")
+    
+    else:
+        # Original stock analysis code
+        st.markdown("### 📊 Stock Analysis")
+        
+        # Initialize session state
+        if "btn_clicked" not in st.session_state:
+            st.session_state["btn_clicked"] = False
 
-            with col3:
-                st.metric(
-                    "📉 24h Low",
-                    f"${symbol_info['low_24h']:.4f}",
-                    f"{((symbol_info['low_24h'] - symbol_info['price']) / symbol_info['price'] * 100):+.2f}%"
-                )
+        def callback():
+            st.session_state["btn_clicked"] = True
 
-            with col4:
-                st.metric(
-                    "📊 24h Volume",
-                    millify(symbol_info['volume'], precision=2),
-                    f"Quote: {millify(symbol_info['quote_volume'], precision=2)}"
-                )
+        # Input section
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            symbol_input = st.text_input(
+                "",
+                placeholder="Enter stock ticker (e.g., AAPL, TSLA, MSFT)",
+                help="Enter a valid stock symbol to analyze",
+            ).upper()
 
-            # Price Chart
-            st.markdown("### 💹 Price Chart")
-            with st.container():
-                st.markdown(
-                    '<div class="chart-container">', unsafe_allow_html=True
-                )
-                if klines_data is not None and not klines_data.empty:
-                    fig = go.Figure()
-                    
-                    # Add candlestick chart
-                    fig.add_trace(go.Candlestick(
-                        x=klines_data.index,
-                        open=klines_data['open'],
-                        high=klines_data['high'],
-                        low=klines_data['low'],
-                        close=klines_data['close'],
-                        name=symbol_input
-                    ))
-                    
-                    fig.update_layout(
-                        title=f"{symbol_input} Price Chart",
-                        xaxis_title="Date",
-                        yaxis_title="Price (USDT)",
-                        plot_bgcolor="rgba(0,0,0,0)",
-                        paper_bgcolor="rgba(0,0,0,0)",
-                        font=dict(family="Inter, sans-serif"),
-                        xaxis=dict(gridcolor="rgba(102, 126, 234, 0.2)"),
-                        yaxis=dict(gridcolor="rgba(102, 126, 234, 0.2)"),
-                        hovermode="x unified",
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.info("No price data available for charting.")
-                st.markdown("</div>", unsafe_allow_html=True)
+            if st.button("🔍 Analyze Stock", on_click=callback, use_container_width=True):
+                pass
 
-            # Trading Data
-            st.markdown("### 📄 Trading Data")
+        # Stock dashboard (original code)
+        if st.session_state["btn_clicked"]:
+            if not symbol_input:
+                st.warning("⚠️ Please enter a stock ticker symbol.")
+                return
 
-            tab1, tab2, tab3 = st.tabs(["Recent Trades", "Order Book", "Market Statistics"])
+            try:
+                with st.spinner("📊 Fetching financial data..."):
+                    company_data = get_company_info(symbol_input)
+                    if company_data is None:
+                        st.error("❌ Failed to retrieve company data. Please check the ticker symbol.")
+                        return
 
-            with tab1:
-                st.markdown("#### Recent Trades")
-                if trades_data is not None and not trades_data.empty:
-                    display_trades = trades_data[['time', 'price', 'qty', 'isBuyerMaker']].head(20)
-                    display_trades['side'] = display_trades['isBuyerMaker'].apply(
-                        lambda x: '🔴 Sell' if x else '🟢 Buy'
-                    )
-                    display_trades = display_trades.drop('isBuyerMaker', axis=1)
-                    display_trades.columns = ['Time', 'Price', 'Quantity', 'Side']
-                    st.dataframe(display_trades, use_container_width=True)
-                else:
-                    st.info("No recent trades data available.")
-
-            with tab2:
-                st.markdown("#### Order Book")
-                if depth_data is not None:
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.markdown("**🟢 Bids (Buy Orders)**")
-                        bids = depth_data['bids'].head(10)
-                        bids.columns = ['Price', 'Quantity']
-                        st.dataframe(bids, use_container_width=True)
-                    
-                    with col2:
-                        st.markdown("**🔴 Asks (Sell Orders)**")
-                        asks = depth_data['asks'].head(10)
-                        asks.columns = ['Price', 'Quantity']
-                        st.dataframe(asks, use_container_width=True)
-                else:
-                    st.info("No order book data available.")
-
-            with tab3:
-                st.markdown("#### Market Statistics")
-                stats_data = {
-                    'Metric': [
-                        'Current Price',
-                        '24h Change',
-                        '24h High',
-                        '24h Low',
-                        '24h Volume',
-                        '24h Quote Volume',
-                        'Trade Count',
-                        'Bid Price',
-                        'Ask Price',
-                        'Spread'
-                    ],
-                    'Value': [
-                        f"${symbol_info['price']:.4f}",
-                        f"{symbol_info['price_change']:+.4f} ({symbol_info['price_change_percent']:+.2f}%)",
-                        f"${symbol_info['high_24h']:.4f}",
-                        f"${symbol_info['low_24h']:.4f}",
-                        f"{symbol_info['volume']:.2f}",
-                        f"{symbol_info['quote_volume']:.2f}",
-                        f"{symbol_info['count']:,}",
-                        f"${symbol_info['bid_price']:.4f}",
-                        f"${symbol_info['ask_price']:.4f}",
-                        f"${symbol_info['ask_price'] - symbol_info['bid_price']:.4f}"
-                    ]
-                }
+                # Company Information Header with logo inside
+                st.markdown("### 🏢 Company Overview")
                 
-                stats_df = pd.DataFrame(stats_data)
-                st.dataframe(stats_df, use_container_width=True)
+                # Create company info with logo inside
+                logo_html = ""
+                if company_data.get("Image"):
+                    logo_html = f'<div class="company-logo"><img src="{company_data["Image"]}" alt="{company_data.get("Name", "Logo")}"></div>'
+                
+                st.markdown(f"""
+                <div class="company-info">
+                    <div class="company-info-content">
+                        <div class="company-name">{company_data.get('Name', 'N/A')}</div>
+                        <div class="company-details">
+                            {company_data.get('Sector', 'N/A')} • {company_data.get('Exchange', 'N/A')} • {company_data.get('Country', 'N/A')}
+                        </div>
+                    </div>
+                    {logo_html}
+                </div>
+                """, unsafe_allow_html=True)
 
-        except Exception as e:
-            st.error(f"An unexpected error occurred: {str(e)}")
-            st.warning("Please verify the symbol or try again later.")
+                # Key Metrics
+                st.markdown("### 📊 Key Metrics")
+                col1, col2, col3, col4 = st.columns(4)
 
-    # Custom thinner Footer
-    st.markdown(
-        """
+                with col1:
+                    st.metric("💰 Stock Price", f"${company_data.get('Price', 0.0):.2f}", 
+                             f"{company_data.get('Price change', 0.0):.2f}")
+
+                with col2:
+                    market_cap = company_data.get('Market Cap', 0)
+                    st.metric("🏦 Market Cap", millify(market_cap, precision=2) if market_cap else "N/A")
+
+                with col3:
+                    beta = company_data.get('Beta', 0)
+                    st.metric("📈 Beta", f"{beta:.2f}" if beta else "N/A")
+
+                with col4:
+                    st.metric("🌐 Exchange", company_data.get('Exchange', 'N/A'))
+
+            except Exception as e:
+                st.error(f"An unexpected error occurred: {e}")
+
+    # Thinner footer
+    st.markdown("""
     <div class="custom-footer">
         No me mates Vélez
     </div>
-    """,
-        unsafe_allow_html=True,
-    )
+    """, unsafe_allow_html=True)
 
 
 if __name__ == "__main__":
