@@ -1,918 +1,334 @@
-# Standard library imports
-import sys
-import os
-import hashlib
-import hmac
-import time
-import secrets
-from io import BytesIO
-from datetime import datetime, timedelta
-import json
-import random 
-# Third-party imports
 import streamlit as st
-import pandas as pd
+st.set_page_config(layout="wide")
 import numpy as np
-import requests
-import plotly.graph_objs as go
-from millify import millify
-import bcrypt
-from binance.client import Client as BinanceClient
-from binance.exceptions import BinanceAPIException
-import supabase
-import logging
-from supabase import create_client, Client as SupabaseClient
+import matplotlib.pyplot as plt
+from scipy.stats import norm
+import seaborn as sns
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
+import time
+from functools import partial
 
+### Enhanced App functions with threading support ######################################################
+def BlackScholes(r, S, K, T, sigma, tipo='C'):
+    '''
+    r : Interest Rate
+    S : Spot Price
+    K : Strike Price
+    T : Days due expiration / 365
+    sigma : Annualized Volatility
+    '''
+    d1 = (np.log(S/K) + (r + sigma**2/2)*T)/(sigma * np.sqrt(T))
+    d2 = d1 - sigma * np.sqrt(T)
+    try:
+        if tipo == 'C':
+            precio = S * norm.cdf(d1, 0, 1) - K * np.exp(-r * T) * norm.cdf(d2, 0, 1)
+        elif tipo == 'P':
+            precio = K * np.exp(-r * T) * norm.cdf(-d2, 0, 1) - S * norm.cdf(-d1, 0, 1)
+    except:
+        print('Error')
+    return precio
 
-# Configure the app page
-st.set_page_config(
-    page_title="Financial Dashboard",
-    page_icon="📈",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-)
+def calculate_bs_row(i, spot_prices, volatilities, strike, interest_rate, T, option_type='C'):
+    """Calculate a single row of the Black-Scholes matrix using threading"""
+    row = []
+    for j in range(len(volatilities)):
+        bs_result = BlackScholes(interest_rate, spot_prices[i], strike, T, volatilities[j], option_type)
+        row.append(round(bs_result, 2))
+    return i, row
 
-# Supabase configuration
-SUPABASE_URL = "https://pcfqzrzelgvutthbijzg.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBjZnF6cnplbGd2dXR0aGJpanpnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI2MDY4ODYsImV4cCI6MjA2ODE4Mjg4Nn0.zVUs0K7vNIUvwxJCesUsVhjpZn5vTm0VrCoiuVCo07k"
-
-# Initialize Supabase client
-supabase_client: SupabaseClient = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-
-def apply_modern_css():
-    """Apply modern CSS styling with glassmorphism effects and sticky header"""
-    modern_css = """
-    <style>
-        /* Import Google Fonts */
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-
-        /* Root variables */
-        :root {
-            --primary-color: #667eea;
-            --secondary-color: #764ba2;
-            --accent-color: #f093fb;
-            --text-primary: #1a1a1a;
-            --text-secondary: #666666;
-            --background-gradient: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-            --glass-bg: rgba(255, 255, 255, 0.4);
-            --glass-border: rgba(255, 255, 255, 0.2);
-            --shadow-light: 0 8px 32px rgba(31, 38, 135, 0.2);
-            --shadow-hover: 0 15px 35px rgba(31, 38, 135, 0.25);
-            --border-radius: 16px;
-            --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        /* Dark mode */
-        @media (prefers-color-scheme: dark) {
-            :root {
-                --text-primary: #f0f2f6;
-                --text-secondary: #a0a0a0;
-                --background-gradient: linear-gradient(135deg, #232526 0%, #414345 100%);
-                --glass-bg: rgba(40, 40, 40, 0.5);
-                --glass-border: rgba(255, 255, 255, 0.15);
-                --shadow-light: 0 8px 32px rgba(0, 0, 0, 0.3);
-                --shadow-hover: 0 15px 35px rgba(0, 0, 0, 0.35);
-            }
-        }
-
-        /* Global styles */
-        .stApp {
-            font-family: 'Inter', sans-serif;
-            background: var(--background-gradient);
-            min-height: 100vh;
-        }
-
-        /* Sticky header */
-        .sticky-header {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            background: var(--glass-bg);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border-bottom: 1px solid var(--glass-border);
-            padding: 1rem 2rem;
-            z-index: 9999;
-            transform: translateY(-100%);
-            transition: transform 0.3s ease;
-        }
-
-        .sticky-header.visible {
-            transform: translateY(0);
-        }
-
-        .sticky-header h1 {
-            color: var(--text-primary);
-            font-size: 1.5rem;
-            margin: 0;
-            font-weight: 600;
-        }
-
-        /* Main container */
-        .main .block-container {
-            max-width: 1200px;
-            padding: 2rem 1rem;
-            margin: 0 auto;
-        }
-
-        /* Header styling */
-        .main-header {
-            background: var(--glass-bg);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid var(--glass-border);
-            border-radius: var(--border-radius);
-            padding: 2rem;
-            margin-bottom: 2rem;
-            box-shadow: var(--shadow-light);
-            transition: var(--transition);
-        }
-
-        .main-header:hover {
-            transform: translateY(-2px);
-            box-shadow: var(--shadow-hover);
-        }
-
-        .main-header h1 {
-            color: var(--text-primary);
-            font-weight: 700;
-            font-size: 2.5rem;
-            margin-bottom: 0.5rem;
-            text-align: center;
-        }
-
-        /* Company info with logo inside */
-        .company-info {
-            background: var(--glass-bg);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid var(--glass-border);
-            border-radius: var(--border-radius);
-            padding: 2rem;
-            margin-bottom: 2rem;
-            box-shadow: var(--shadow-light);
-            transition: var(--transition);
-            display: flex;
-            align-items: center;
-            gap: 2rem;
-        }
-
-        .company-info:hover {
-            transform: translateY(-2px);
-            box-shadow: var(--shadow-hover);
-        }
-
-        .company-info-content {
-            flex: 1;
-        }
-
-        .company-logo {
-            flex-shrink: 0;
-        }
-
-        .company-logo img {
-            width: 80px;
-            height: 80px;
-            object-fit: contain;
-            border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-            transition: var(--transition);
-        }
-
-        .company-logo img:hover {
-            transform: scale(1.05);
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
-        }
-
-        .company-name {
-            font-size: 1.8rem;
-            font-weight: 700;
-            color: var(--text-primary);
-            margin-bottom: 0.5rem;
-        }
-
-        /* Auth container */
-        .auth-container {
-            max-width: 400px;
-            margin: 0 auto;
-            padding: 2rem;
-            background: var(--glass-bg);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid var(--glass-border);
-            border-radius: var(--border-radius);
-            box-shadow: var(--shadow-light);
-        }
-
-        .auth-title {
-            text-align: center;
-            color: var(--text-primary);
-            font-size: 2rem;
-            font-weight: 600;
-            margin-bottom: 2rem;
-        }
-
-        .security-note {
-            background: rgba(46, 204, 113, 0.1);
-            border: 1px solid rgba(46, 204, 113, 0.3);
-            border-radius: 8px;
-            padding: 1rem;
-            margin: 1rem 0;
-            font-size: 0.9rem;
-            color: var(--text-primary);
-        }
-
-        .security-note::before {
-            content: "🔒 ";
-            font-size: 1.2em;
-        }
-
-        /* Footer styling */
-        .custom-footer {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            border-top: 1px solid var(--glass-border);
-            padding: 0.5rem 1rem;
-            text-align: center;
-            color: var(--text-secondary);
-            font-size: 0.8rem;
-            z-index: 1000;
-        }
-
-        /* Button styling */
-        .stButton > button {
-            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
-            border: none;
-            border-radius: 12px;
-            padding: 0.75rem 2rem;
-            font-weight: 600;
-            font-size: 1.1rem;
-            color: white;
-            transition: var(--transition);
-            box-shadow: var(--shadow-light);
-        }
-
-        .stButton > button:hover {
-            transform: translateY(-2px);
-            box-shadow: var(--shadow-hover);
-            background: linear-gradient(135deg, var(--secondary-color), var(--primary-color));
-        }
-
-        /* Input styling */
-        .stTextInput > div > div > input {
-            background: var(--glass-bg);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid var(--glass-border);
-            border-radius: 12px;
-            padding: 0.75rem 1rem;
-            font-size: 1.1rem;
-            font-weight: 500;
-            color: var(--text-primary);
-            transition: var(--transition);
-        }
-
-        .stTextInput > div > div > input:focus {
-            border-color: var(--primary-color);
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        }
-
-        /* Sticky header script */
-        window.addEventListener('scroll', function() {
-            const header = document.querySelector('.sticky-header');
-            if (window.scrollY > 200) {
-                header.classList.add('visible');
-            } else {
-                header.classList.remove('visible');
-            }
-        });
-
-        /* Hide Streamlit elements */
-        #MainMenu {visibility: hidden;}
-        footer {visibility: hidden;}
-        header {visibility: hidden;}
-    </style>
+def HeatMapMatrix_Threaded(spot_prices, volatilities, strike, interest_rate, days_to_exp, option_type='C', max_workers=None):
     """
-    st.markdown(modern_css, unsafe_allow_html=True)
-
-
-def hash_password(password: str) -> str:
-    """Hash a password using bcrypt"""
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-
-
-def verify_password(password: str, hashed: str) -> bool:
-    """Verify a password against its hash"""
-    return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
-
-
-def create_session_token() -> str:
-    """Create a secure session token"""
-    return secrets.token_urlsafe(32)
-
-
-def register_user(
-    username: str,
-    email: str,
-    password: str,
-    binance_api_key: str,
-    binance_api_secret: str,
-) -> bool:
-    """Register a new user"""
-    try:
-        password_hash = hash_password(password)
-
-        result = (
-            supabase_client.table("users")
-            .insert(
-                {
-                    "username": username,
-                    "email": email,
-                    "password_hash": password_hash,
-                    "binance_api_key": binance_api_key,
-                    "binance_api_secret": binance_api_secret,
-                }
-            )
-            .execute()
-        )
-
-        return True
-    except Exception as e:
-        st.error(f"Registration failed: {str(e)}")
-        return False
-
-
-def login_user(username: str, password: str) -> dict:
-    """Login user and create session"""
-    try:
-        result = (
-            supabase_client.table("users").select("*").eq("username", username).execute()
-        )
-
-        if result.data and len(result.data) > 0:
-            user = result.data[0]
-            if verify_password(password, user["password_hash"]):
-                # Create session
-                session_token = create_session_token()
-                expires_at = datetime.now() + timedelta(days=30)
-
-                supabase_client.table("user_sessions").insert(
-                    {
-                        "user_id": user["id"],
-                        "session_token": session_token,
-                        "expires_at": expires_at.isoformat(),
-                    }
-                ).execute()
-
-                return {
-                    "success": True,
-                    "user": user,
-                    "session_token": session_token,
-                }
-
-        return {"success": False, "message": "Invalid credentials"}
-    except Exception as e:
-        return {"success": False, "message": str(e)}
-
-
-def get_user_by_session(session_token: str) -> dict:
-    """Get user by session token"""
-    try:
-        result = (
-            supabase_client.table("user_sessions")
-            .select("*, users(*)")
-            .eq("session_token", session_token)
-            .execute()
-        )
-
-        if result.data and len(result.data) > 0:
-            session = result.data[0]
-            expires_at = datetime.fromisoformat(session["expires_at"].replace("Z", "+00:00"))
-
-            if expires_at > datetime.now(expires_at.tzinfo):
-                return {"success": True, "user": session["users"]}
-
-        return {"success": False}
-    except Exception as e:
-        return {"success": False, "message": str(e)}
-
-
-def logout_user(session_token: str):
-    """Logout user by removing session"""
-    try:
-        supabase_client.table("user_sessions").delete().eq(
-            "session_token", session_token
-        ).execute()
-    except Exception as e:
-        st.error(f"Logout failed: {str(e)}")
-
-
-def show_auth_page():
-    """Show authentication page"""
-    st.markdown('<div class="auth-container">', unsafe_allow_html=True)
-
-    tab1, tab2 = st.tabs(["Login", "Sign Up"])
-
-    with tab1:
-        st.markdown('<h2 class="auth-title">Welcome Back</h2>', unsafe_allow_html=True)
-
-        st.markdown(
-            """
-        <div class="security-note">
-            Your data is secure and encrypted. We use industry-standard encryption to protect your API keys and personal information.
-        </div>
-        """,
-            unsafe_allow_html=True,
-        )
-
-        username = st.text_input("Username", key="login_username")
-        password = st.text_input("Password", type="password", key="login_password")
-
-        if st.button("Login", key="login_btn"):
-            if username and password:
-                result = login_user(username, password)
-                if result["success"]:
-                    st.session_state["session_token"] = result["session_token"]
-                    st.session_state["user"] = result["user"]
-                    st.success("Login successful!")
-                    st.rerun()
-                else:
-                    st.error(result.get("message", "Login failed"))
-            else:
-                st.warning("Please fill in all fields")
-
-    with tab2:
-        st.markdown('<h2 class="auth-title">Create Account</h2>', unsafe_allow_html=True)
-
-        st.markdown(
-            """
-        <div class="security-note">
-            Your data is secure and encrypted. We use bcrypt for password hashing and encrypt your API keys. Your credentials are never stored in plain text.
-        </div>
-        """,
-            unsafe_allow_html=True,
-        )
-
-        new_username = st.text_input("Username", key="signup_username")
-        new_email = st.text_input("Email", key="signup_email")
-        binance_api_key = st.text_input("Binance API Key", key="signup_api_key")
-        binance_api_secret = st.text_input(
-            "Binance API Secret", type="password", key="signup_api_secret"
-        )
-        new_password = st.text_input(
-            "Password", type="password", key="signup_password"
-        )
-
-        if st.button("Sign Up", key="signup_btn"):
-            if all(
-                [
-                    new_username,
-                    new_email,
-                    binance_api_key,
-                    binance_api_secret,
-                    new_password,
-                ]
-            ):
-                if register_user(
-                    new_username,
-                    new_email,
-                    new_password,
-                    binance_api_key,
-                    binance_api_secret,
-                ):
-                    st.success("Account created successfully! Please login.")
-                    st.balloons()
-            else:
-                st.warning("Please fill in all fields")
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-
-# =============================================================================
-# DATA FUNCTIONS
-# =============================================================================
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-@st.cache_data(ttl=300)
-def get_binance_client(api_key: str, api_secret: str):
+    Enhanced heatmap matrix calculation using ThreadPoolExecutor for better performance
     """
-    Get Binance client using a Mexican HTTPS proxy.
-    Tries two free‐proxy sources, tests up to 10 proxies, and logs each attempt.
-    Falls back to a direct connection with a warning if none work.
+    if max_workers is None:
+        max_workers = min(32, len(spot_prices))  # Limit max workers to avoid overhead
+    
+    M = np.zeros(shape=(len(spot_prices), len(volatilities)))
+    T = days_to_exp / 365
+    
+    # Use ThreadPoolExecutor for parallel computation
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Create a partial function with fixed parameters
+        calculate_row_func = partial(
+            calculate_bs_row,
+            spot_prices=spot_prices,
+            volatilities=volatilities,
+            strike=strike,
+            interest_rate=interest_rate,
+            T=T,
+            option_type=option_type
+        )
+        
+        # Submit all row calculations
+        future_to_row = {executor.submit(calculate_row_func, i): i for i in range(len(spot_prices))}
+        
+        # Collect results as they complete
+        for future in as_completed(future_to_row):
+            row_idx, row_data = future.result()
+            M[row_idx, :] = row_data
+    
+    return M
+
+def simulate_path_chunk(chunk_params):
+    """Simulate a chunk of Monte Carlo paths"""
+    start_idx, end_idx, days_to_maturity, underlying_price, risk_free_rate, volatility, step = chunk_params
+    
+    chunk_size = end_idx - start_idx
+    dt = (days_to_maturity / 365) / step
+    Z = np.random.normal(0, np.sqrt(dt), (step, chunk_size))
+    paths = np.vstack([np.ones(chunk_size), 
+                      np.exp((risk_free_rate - 0.5 * volatility**2) * dt + volatility * Z)]).cumprod(axis=0)
+    
+    return underlying_price * paths
+
+@st.cache_data
+def simulate_threaded(NS, days_to_maturity, underlying_price, risk_free_rate, volatility, step, max_workers=None):
     """
-    proxy_sources = [
-        # ProxyScrape MX HTTPS list
-        "https://api.proxyscrape.com/v2/"
-        "?request=getproxies&protocol=https&timeout=5000&country=mx&ssl=yes",
-        # proxy‐list.download MX HTTPS list
-        "https://www.proxy-list.download/api/v1/get?type=https&country=MX"
-    ]
+    Enhanced Monte Carlo simulation using threading for better performance
+    """
+    if max_workers is None:
+        max_workers = min(8, NS // 100)  # Adjust based on simulation size
+    
+    if max_workers <= 1 or NS < 500:
+        # For small simulations, use single thread to avoid overhead
+        return simulate_path_chunk((0, NS, days_to_maturity, underlying_price, risk_free_rate, volatility, step))
+    
+    # Split simulations into chunks
+    chunk_size = max(100, NS // max_workers)
+    chunks = []
+    
+    for i in range(0, NS, chunk_size):
+        end_idx = min(i + chunk_size, NS)
+        chunks.append((i, end_idx, days_to_maturity, underlying_price, risk_free_rate, volatility, step))
+    
+    # Execute chunks in parallel
+    all_paths = []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_chunk = {executor.submit(simulate_path_chunk, chunk): chunk for chunk in chunks}
+        
+        for future in as_completed(future_to_chunk):
+            chunk_paths = future.result()
+            all_paths.append(chunk_paths)
+    
+    # Concatenate all paths
+    return np.hstack(all_paths)
 
-    all_proxies = []
-    for url in proxy_sources:
-        try:
-            r = requests.get(url, timeout=5)
-            r.raise_for_status()
-            lines = [p.strip() for p in r.text.splitlines() if p.strip()]
-            logger.info(f"Fetched {len(lines)} candidates from {url}")
-            all_proxies.extend(lines)
-        except Exception as e:
-            logger.warning(f"Failed to fetch from {url}: {e}")
-
-    # dedupe & shuffle
-    all_proxies = list(dict.fromkeys(all_proxies))
-    random.shuffle(all_proxies)
-
-    best_proxy = None
-    for candidate in all_proxies[:10]:
-        proxies = {
-            "http":  f"http://{candidate}",
-            "https": f"https://{candidate}"
-        }
-        logger.info(f"Testing proxy {candidate} …")
-        try:
-            resp = requests.get(
-                "https://api.binance.com/api/v3/ping",
-                proxies=proxies,
-                timeout=5
-            )
-            if resp.status_code == 200:
-                best_proxy = candidate
-                logger.info(f"✅ Proxy {candidate} works!")
-                break
-            else:
-                logger.warning(f"✗ Proxy {candidate} returned {resp.status_code}")
-        except Exception as e:
-            logger.warning(f"✗ Proxy {candidate} failed: {e}")
-
-    if best_proxy:
-        requests_params = {
-            "proxies": {
-                "http":  f"http://{best_proxy}",
-                "https": f"https://{best_proxy}"
-            }
-        }
-    else:
-        requests_params = None
-        logger.warning(
-            "⚠️ No working MX proxy found; falling back to direct connection."
-        )
-
+def calculate_option_payoff_threaded(K, St, option_type='Call', timeshot_step=None):
+    """Calculate option payoffs with threading support"""
+    if timeshot_step is None:
+        timeshot_step = -1
+    
     try:
-        client = BinanceClient(
-            api_key,
-            api_secret,
-            tld="com",               # global endpoint
-            requests_params=requests_params
-        )
-        client.ping()               # verify connectivity
-        if best_proxy:
-            logger.info(f"🔗 Connected via proxy {best_proxy}")
+        if option_type == 'Call':
+            payoff = np.maximum(St[timeshot_step, :] - K, 0)
+        elif option_type == 'Put':
+            payoff = np.maximum(K - St[timeshot_step, :], 0)
         else:
-            logger.info("🔗 Connected directly (no proxy)")
-        return client
-    except Exception as e:
-        logger.error(f"❌ Failed to connect to Binance: {e}")
-        return None
+            payoff = np.zeros(St.shape[1])
+    except:
+        print('Error in payoff calculation')
+        payoff = np.zeros(St.shape[1])
+    
+    return payoff
 
+###############################################################################################################
+#### Sidebar parameters ###############################################
 
-@st.cache_data(ttl=60)  # Cache for 1 minute
-def get_account_info(api_key: str, api_secret: str):
-    """Get Binance account information"""
-    client = get_binance_client(api_key, api_secret)
-    if client:
-        try:
-            return client.get_account()
-        except BinanceAPIException as e:
-            st.error(f"Binance API Error: {e}")
-            return None
-    return None
+st.sidebar.header('Option Parameters')
+underlying_price = st.sidebar.number_input('Spot Price', value=100)
+trade_type = st.sidebar.segmented_control("Contract type", ['Call', 'Put'], default='Call')
+selected_strike = st.sidebar.number_input('Strike/Exercise Price', value=80)
+days_to_maturity = st.sidebar.number_input('Time to Maturity (days)', value=365)
+risk_free_rate = st.sidebar.number_input('Risk-Free Interest Rate', value=0.1)
+volatility = st.sidebar.number_input('Annualized Volatility', value=0.2)
 
+st.sidebar.subheader('P&L Parameters')
+option_purchase_price = st.sidebar.number_input("Option's Price")
+transaction_cost = st.sidebar.number_input("Opening/Closing Cost")
 
-@st.cache_data(ttl=60)
-def get_ticker_prices(api_key: str, api_secret: str):
-    """Get all ticker prices"""
-    client = get_binance_client(api_key, api_secret)
-    if client:
-        try:
-            return client.get_all_tickers()
-        except BinanceAPIException as e:
-            st.error(f"Error fetching ticker prices: {e}")
-            return None
-    return None
+st.sidebar.subheader('Heatmap Parameters')
+min_spot_price = st.sidebar.number_input('Min Spot price', value=50)
+max_spot_price = st.sidebar.number_input('Max Spot price', value=110)
+min_vol = st.sidebar.slider('Min Volatility', 0.01, 1.00)
+max_vol = st.sidebar.slider('Max Volatility', 0.01, 1.00, 1.00)
+grid_size = st.sidebar.slider('Grid size (nxn)', 5, 20, 10)
 
+st.sidebar.subheader('Performance Settings')
+max_workers_heatmap = st.sidebar.slider('Heatmap Threads', 1, 16, 8, help="Number of threads for heatmap calculations")
+max_workers_simulation = st.sidebar.slider('Simulation Threads', 1, 8, 4, help="Number of threads for Monte Carlo simulations")
 
-@st.cache_data(ttl=300)
-def get_klines(
-    api_key: str, api_secret: str, symbol: str, interval: str, limit: int = 100
-):
-    """Get candlestick data"""
-    client = get_binance_client(api_key, api_secret)
-    if client:
-        try:
-            klines = client.get_klines(symbol=symbol, interval=interval, limit=limit)
-            df = pd.DataFrame(
-                klines,
-                columns=[
-                    "timestamp",
-                    "open",
-                    "high",
-                    "low",
-                    "close",
-                    "volume",
-                    "close_time",
-                    "quote_asset_volume",
-                    "number_of_trades",
-                    "taker_buy_base_asset_volume",
-                    "taker_buy_quote_asset_volume",
-                    "ignore",
-                ],
-            )
-            df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
-            df["close"] = df["close"].astype(float)
-            return df
-        except BinanceAPIException as e:
-            st.error(f"Error fetching candlestick data: {e}")
-            return None
-    return None
+#### Variables ########################################################
+spot_prices_space = np.linspace(min_spot_price, max_spot_price, grid_size)
+volatilities_space = np.linspace(min_vol, max_vol, grid_size)
+########################################################################
 
+st.header('Black Scholes Options Heatmap (Optimized with Threading)')
+st.write("Calculates an option's arbitrage-free premium using the Black Scholes option pricing model with enhanced performance through multithreading.")
 
-@st.cache_data(ttl=300)
-def get_order_book(api_key: str, api_secret: str, symbol: str, limit: int = 100):
-    """Get order book data"""
-    client = get_binance_client(api_key, api_secret)
-    if client:
-        try:
-            return client.get_order_book(symbol=symbol, limit=limit)
-        except BinanceAPIException as e:
-            st.error(f"Error fetching order book: {e}")
-            return None
-    return None
+# Calculate individual option prices
+call_price = BlackScholes(risk_free_rate, underlying_price, selected_strike, days_to_maturity / 365, volatility)
+put_price = BlackScholes(risk_free_rate, underlying_price, selected_strike, days_to_maturity / 365, volatility, 'P')
 
+cal_contract_prices = [call_price, put_price]
+t1_col1, t1_col2 = st.columns(2)
+with t1_col1:
+    st.markdown(f"Call value: **{round(call_price, 3)}**")
+with t1_col2:
+    st.markdown(f"Put value: **{round(put_price, 3)}**")
 
-@st.cache_data(ttl=60)
-def get_24hr_ticker(api_key: str, api_secret: str, symbol: str):
-    """Get 24hr ticker statistics"""
-    client = get_binance_client(api_key, api_secret)
-    if client:
-        try:
-            return client.get_ticker(symbol=symbol)
-        except BinanceAPIException as e:
-            st.error(f"Error fetching 24hr ticker: {e}")
-            return None
-    return None
+tab1, tab2, tab3 = st.tabs(["Option's fair value heatmap", "Option's P&L heatmap", "Expected underlying distribution"])
 
-
-def main():
-    """Main application function"""
-    apply_modern_css()
-
-    # Add sticky header
-    st.markdown(
-        """
-    <div class="sticky-header">
-        <h1>📈 Financial Dashboard</h1>
-    </div>
-    """,
-        unsafe_allow_html=True,
+# Pre-calculate matrices with threading
+with st.spinner('Calculating heatmaps with multithreading...'):
+    start_time = time.time()
+    
+    # Use threading for heatmap calculations
+    output_matrix_C = HeatMapMatrix_Threaded(
+        spot_prices_space, volatilities_space, selected_strike, 
+        risk_free_rate, days_to_maturity, 'C', max_workers_heatmap
     )
-
-    # Check authentication
-    if "session_token" not in st.session_state:
-        show_auth_page()
-        return
-
-    # Verify session
-    session_result = get_user_by_session(st.session_state["session_token"])
-    if not session_result["success"]:
-        st.session_state.clear()
-        st.rerun()
-        return
-
-    user = session_result["user"]
-
-    # Header
-    st.markdown(
-        f"""
-        <div class="main-header">
-            <h1>📈 Financial Dashboard</h1>
-            <p style="text-align: center; color: #666666; font-size: 1.1rem;">
-                Welcome back, {user['username']}! Real-time financial asset analysis
-            </p>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    output_matrix_P = HeatMapMatrix_Threaded(
+        spot_prices_space, volatilities_space, selected_strike, 
+        risk_free_rate, days_to_maturity, 'P', max_workers_heatmap
     )
+    
+    calc_time = time.time() - start_time
+    st.success(f'Heatmap calculations completed in {calc_time:.2f} seconds using {max_workers_heatmap} threads')
 
-    # Logout button
-    col1, col2, col3 = st.columns([1, 1, 1])
-    with col3:
-        if st.button("Logout"):
-            logout_user(st.session_state["session_token"])
-            st.session_state.clear()
-            st.rerun()
+##### Heatmaps configuration #################################################################
 
-    # Get user's Binance credentials
-    api_key = user["binance_api_key"]
-    api_secret = user["binance_api_secret"]
+with tab1:
+    st.write("Explore different contract's values given variations in Spot Prices and Annualized Volatilities")
+    fig, axs = plt.subplots(2, 1, figsize=(25, 25))
 
-    # Test Binance connection
-    if not get_binance_client(api_key, api_secret):
-        st.error("Failed to connect to the data provider API. Please check your credentials.")
-        return
+    sns.heatmap(output_matrix_C.T, annot=True, fmt='.1f',
+                xticklabels=[str(round(i, 2)) for i in spot_prices_space],
+                yticklabels=[str(round(i, 2)) for i in volatilities_space], ax=axs[0],
+                cbar_kws={'label': 'Call Value'})
+    axs[0].set_title('Call heatmap', fontsize=20)
+    axs[0].set_xlabel('Spot Price', fontsize=15)
+    axs[0].set_ylabel('Annualized Volatility', fontsize=15)
 
-    # Symbol selection
-    st.markdown("### 📊 Select Asset")
-    st.info(
-        "ℹ️ Note: This dashboard currently uses the Binance API as its data source, "
-        "so only cryptocurrency assets are available. Integrating APIs for stocks or "
-        "other equities would be required to expand the asset selection."
-    )
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        symbol = st.selectbox(
-            "Choose an asset to analyze",
-            [
-                "BTCUSDT",
-                "ETHUSDT",
-                "ADAUSDT",
-                "DOTUSDT",
-                "LINKUSDT",
-                "BNBUSDT",
-                "XRPUSDT",
-                "LTCUSDT",
-            ],
-            index=0,
+    sns.heatmap(output_matrix_P.T, annot=True, fmt='.1f',
+                xticklabels=[str(round(i, 2)) for i in spot_prices_space],
+                yticklabels=[str(round(i, 2)) for i in volatilities_space], ax=axs[1],
+                cbar_kws={'label': 'Put Value'})
+
+    axs[1].set_title('Put heatmap', fontsize=20)
+    axs[1].set_xlabel('Spot Price', fontsize=15)
+    axs[1].set_ylabel('Annualized Volatility', fontsize=15)
+
+    st.pyplot(fig)
+
+with tab2:
+    st.write("Explore different expected P&L's from a specific contract trade given variations in the Spot Price and Annualized Volatility")
+
+    fig, axs = plt.subplots(1, 1, figsize=(25, 15))
+
+    call_PL = output_matrix_C.T - option_purchase_price - 2 * transaction_cost
+    put_PL = output_matrix_P.T - option_purchase_price - 2 * transaction_cost
+    PL_options = [call_PL, put_PL]
+    selection = 0 if trade_type == 'Call' else 1
+
+    specific_contract_pl = cal_contract_prices[selection] - option_purchase_price - 2 * transaction_cost
+    st.markdown(f':green[Expected P&L given selected parameters: **{round(specific_contract_pl, 2)}**]')
+    
+    mapping_color = sns.diverging_palette(15, 145, s=60, as_cmap=True)
+    sns.heatmap(PL_options[selection], annot=True, fmt='.1f',
+                xticklabels=[str(round(i, 2)) for i in spot_prices_space],
+                yticklabels=[str(round(i, 2)) for i in volatilities_space], ax=axs,
+                cmap=mapping_color, center=0)
+    axs.set_title(f'{trade_type} Expected P&L', fontsize=20)
+    axs.set_xlabel('Spot Price', fontsize=15)
+    axs.set_ylabel('Annualized Volatility', fontsize=15)
+
+    st.pyplot(fig)
+
+with tab3:
+    st.write('Calculate the expected distribution of the underlying asset price, the option premium and the p&l from trading the option')
+    with st.expander("See methodology"):
+        st.write('The distribution is obtained by simulating $N$ times the underlying asset price as a geometric brownian process during a specified time period.' \
+                ' The function $S : [0, \\infty) \\mapsto [0, \\infty) $ will describe the stochastic process as: ')
+        st.latex('S(t) = S(0) e^{(\\mu - \\sigma^2 / 2)t + \\sigma W(t)} ')
+        st.write('Where $\\mu$ is the risk free rate, $\\sigma$ the annualized volatility of the asset you want to simulate and $S(0)$ the asset price at the beginning (spot price)')
+        st.write('**Threading Enhancement**: Monte Carlo simulations are now parallelized using ThreadPoolExecutor for improved performance.')
+    
+    t3_col1, t3_col2, t3_col3 = st.columns(3)
+    with t3_col1:
+        NS = st.slider('Number of simulations ($N$)', 100, 10000, 1000, 10)
+    with t3_col2:
+        s_selection = st.radio('Select time interval', ['Days', 'Hours', 'Minutes'], horizontal=True, 
+                              help='The time interval each price point will represent. This option is merely for visual purposes.')
+    with t3_col3:
+        timeshot = st.slider("Select chart's timestamp (days/year)", 0.0, days_to_maturity / 365, days_to_maturity / 365)
+
+    if s_selection == 'Days':
+        step = days_to_maturity
+    elif s_selection == 'Hours':
+        step = days_to_maturity * 24
+    elif s_selection == 'Minutes':
+        step = days_to_maturity * 24 * 60
+
+    #### Creating the simulations with threading
+    with st.spinner('Running Monte Carlo simulations with multithreading...'):
+        start_time = time.time()
+        
+        simulation_paths = simulate_threaded(
+            NS, days_to_maturity, underlying_price, risk_free_rate, 
+            volatility, int(step), max_workers_simulation
         )
+        
+        sim_time = time.time() - start_time
+        st.info(f'Monte Carlo simulation completed in {sim_time:.2f} seconds using {max_workers_simulation} threads')
 
-    with col2:
-        if st.button("🔄 Refresh Data"):
-            st.cache_data.clear()
-            st.rerun()
+    # Calculate timeshot step
+    timeshot_step = -int(step - timeshot * step + 1)
+    
+    option_prices = calculate_option_payoff_threaded(selected_strike, simulation_paths, trade_type, timeshot_step)
+    pl_results = option_prices - option_purchase_price - 2 * transaction_cost
 
-    # Get data
-    with st.spinner("📊 Fetching data from the provider..."):
-        ticker_data = get_24hr_ticker(api_key, api_secret, symbol)
-        account_info = get_account_info(api_key, api_secret)
-        klines_data = get_klines(
-            api_key, api_secret, symbol, "1h", 168
-        )  # 1 week of hourly data
+    otm_probability = round(sum(option_prices == 0) / len(option_prices), 2)
+    itm_probability = round(1 - otm_probability, 2)
+    positive_pl_proba = round(sum(pl_results > 0) / len(pl_results), 2)
 
-        if ticker_data is None:
-            st.error("Failed to fetch ticker data")
-            return
+    st.subheader('Results')
 
-    # Display current price and stats
-    st.markdown("### 📈 Current Market Data")
-    col1, col2, col3, col4 = st.columns(4)
+    t32_col1, t32_col2, t32_col3 = st.columns(3)
+    t32_col1.metric("In-the money probability", itm_probability, border=True)
+    t32_col2.metric("Out-the money probability", otm_probability, border=True)
+    t32_col3.metric("Positive P&L probability", positive_pl_proba, border=True)
 
-    with col1:
-        price = float(ticker_data["lastPrice"])
-        price_change = float(ticker_data["priceChangePercent"])
-        st.metric("💰 Current Price", f"${price:,.4f}", f"{price_change:+.2f}%")
+    #### Plots
+    t33_col1, t33_col2 = st.columns(2)
+    with t33_col1:
+        t3_fig1 = plt.figure(figsize=(8, 8))
+        sns.histplot(simulation_paths[timeshot_step, :], kde=True, stat='probability')
+        plt.xlabel('Price')
+        plt.axvline(selected_strike, 0, 1, color='r', label='Strike price')
+        plt.title(f'Expected underlying asset price distribution at day {int(timeshot * 365)}')
+        plt.legend()
+        st.pyplot(t3_fig1)
 
-    with col2:
-        volume = float(ticker_data["volume"])
-        st.metric(
-            "📊 24h Volume",
-            f"{volume:,.0f}",
-            f"${float(ticker_data['quoteVolume']):,.0f}",
-        )
+    with t33_col2:
+        t3_fig2 = plt.figure(figsize=(8, 3))
+        sns.histplot(option_prices, kde=True, stat='probability')
+        plt.xlabel('Price')
+        plt.title(f'Expected {trade_type} premium at day {int(timeshot * 365)}')
+        plt.legend()
+        st.pyplot(t3_fig2)
 
-    with col3:
-        high = float(ticker_data["highPrice"])
-        low = float(ticker_data["lowPrice"])
-        st.metric("📊 24h High", f"${high:,.4f}", f"${low:,.4f} (Low)")
+        t3_fig3 = plt.figure(figsize=(8, 3))
+        sns.histplot(pl_results, kde=True, stat='probability')
+        plt.xlabel('Price')
+        plt.title(f'Expected P&L distribution at day {int(timeshot * 365)}')
+        plt.legend()
+        st.pyplot(t3_fig3)
 
-    with col4:
-        if account_info:
-            # Note: This balance calculation is specific to a crypto exchange structure.
-            # It would need to be adapted for a traditional brokerage.
-            total_balance = sum(
-                float(balance["free"]) + float(balance["locked"])
-                for balance in account_info["balances"]
-                if float(balance["free"]) > 0 or float(balance["locked"]) > 0
-            )
-            st.metric("💼 Portfolio Value", f"${total_balance:,.2f}", "Estimated")
-
-    # Price Chart
-    st.markdown("### 📊 Price Chart (1 Week)")
-    if klines_data is not None and not klines_data.empty:
-        st.markdown('<div class="chart-container">', unsafe_allow_html=True)
-
-        fig = go.Figure()
-
-        # Candlestick chart
-        fig.add_trace(
-            go.Candlestick(
-                x=klines_data["timestamp"],
-                open=klines_data["open"].astype(float),
-                high=klines_data["high"].astype(float),
-                low=klines_data["low"].astype(float),
-                close=klines_data["close"].astype(float),
-                name=symbol,
-            )
-        )
-
-        fig.update_layout(
-            title=f"{symbol} Price Chart",
-            xaxis_title="Time",
-            yaxis_title="Price (USDT)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            paper_bgcolor="rgba(0,0,0,0)",
-            font=dict(family="Inter, sans-serif"),
-            xaxis=dict(gridcolor="rgba(102, 126, 234, 0.2)"),
-            yaxis=dict(gridcolor="rgba(102, 126, 234, 0.2)"),
-            hovermode="x unified",
-        )
-
-        st.plotly_chart(fig, use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    # Account Information
-    if account_info:
-        st.markdown("### 💼 Account Information")
-
-        # Portfolio balances
-        balances = []
-        for balance in account_info["balances"]:
-            free = float(balance["free"])
-            locked = float(balance["locked"])
-            if free > 0 or locked > 0:
-                balances.append(
-                    {
-                        "Asset": balance["asset"],
-                        "Free": free,
-                        "Locked": locked,
-                        "Total": free + locked,
-                    }
-                )
-
-        if balances:
-            df_balances = pd.DataFrame(balances)
-            df_balances = df_balances.sort_values("Total", ascending=False)
-
-            st.dataframe(df_balances, use_container_width=True, hide_index=True)
-        else:
-            st.info("No balances found")
-
-    # Trading Statistics
-    st.markdown("### 📊 Trading Statistics")
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown("#### 24h Statistics")
-        stats_data = {
-            "Metric": ["Price Change", "Volume", "High", "Low", "Open", "Trades"],
-            "Value": [
-                f"{float(ticker_data['priceChangePercent']):+.2f}%",
-                f"{float(ticker_data['volume']):,.0f}",
-                f"${float(ticker_data['highPrice']):,.4f}",
-                f"${float(ticker_data['lowPrice']):,.4f}",
-                f"${float(ticker_data['openPrice']):,.4f}",
-                f"{int(ticker_data['count']):,}",
-            ],
-        }
-        st.dataframe(pd.DataFrame(stats_data), hide_index=True)
-
-    with col2:
-        # Order Book Preview
-        order_book = get_order_book(api_key, api_secret, symbol, 10)
-        if order_book:
-            st.markdown("#### Order Book (Top 10)")
-
-            bids_df = pd.DataFrame(order_book["bids"][:5], columns=["Price", "Quantity"])
-            asks_df = pd.DataFrame(order_book["asks"][:5], columns=["Price", "Quantity"])
-
-            bids_df["Price"] = bids_df["Price"].astype(float)
-            bids_df["Quantity"] = bids_df["Quantity"].astype(float)
-            asks_df["Price"] = asks_df["Price"].astype(float)
-            asks_df["Quantity"] = asks_df["Quantity"].astype(float)
-
-            st.markdown("**Bids (Buy Orders)**")
-            st.dataframe(bids_df, hide_index=True)
-
-            st.markdown("**Asks (Sell Orders)**")
-            st.dataframe(asks_df, hide_index=True)
-
-    # Footer
-    st.markdown(
-        """
-        <div class="custom-footer">
-            No me mates Vélez
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-if __name__ == "__main__":
-    main()
+# Performance information
+st.sidebar.markdown("---")
+st.sidebar.subheader("Threading Benefits")
+st.sidebar.write("✅ Non-blocking UI during calculations")
+st.sidebar.write("✅ Faster heatmap generation")
+st.sidebar.write("✅ Optimized Monte Carlo simulations")
+st.sidebar.write("✅ Configurable thread pools")
