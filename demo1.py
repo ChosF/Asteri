@@ -334,9 +334,9 @@ with tab3:
     
     # Display key metrics
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("ITM Probability", f"{itm_probability:.1%}")
-    col2.metric("OTM Probability", f"{otm_probability:.1%}")
-    col3.metric("Profitable Trades", f"{positive_pl_probability:.1%}")
+    col1.metric("In-the money probability", f"{itm_probability:.2f}")
+    col2.metric("Out-the money probability", f"{otm_probability:.2f}")
+    col3.metric("Positive P&L probability", f"{positive_pl_probability:.2f}")
     col4.metric("Average P&L", f"${np.mean(pl_results):.2f}")
     
     # Create distribution plots
