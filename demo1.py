@@ -1,464 +1,380 @@
 import streamlit as st
-st.set_page_config(layout="wide", page_title="Black-Scholes Options Pricing")
-
+st.set_page_config(layout="wide")
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import norm
 import seaborn as sns
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
+from functools import lru_cache
 import os
-from functools import partial
-import warnings
-warnings.filterwarnings('ignore')
 
-# Configure matplotlib for better performance
-plt.ioff()  # Turn off interactive mode
-sns.set_theme(style="whitegrid", rc={'figure.dpi': 100})
+# Optimize matplotlib for performance
+plt.style.use('fast')
+plt.rcParams['figure.max_open_warning'] = 0
 
-### Optimized App Functions ######################################################
+# Automatically determine optimal thread count
+def get_optimal_threads():
+    """Automatically determine optimal number of threads based on system resources."""
+    cpu_count = os.cpu_count() or 4
+    # For CPU-bound tasks, use CPU count; for mixed workloads, use CPU count + 2
+    return min(max(cpu_count - 1, 2), 8)  # Cap at 8 threads to avoid overhead
 
-@st.cache_data(show_spinner=False)
-def black_scholes_vectorized(r, S, K, T, sigma, option_type='C'):
+OPTIMAL_THREADS = get_optimal_threads()
+
+### Optimized App functions ######################################################
+@lru_cache(maxsize=1000)
+def blackscholes_cached(r, S, K, T, sigma, option_type='C'):
     """
-    Vectorized Black-Scholes formula
-    
-    Parameters can be scalars or arrays for vectorized computation
+    Cached Black-Scholes computation with optimized calculations.
+    Uses LRU cache to avoid recomputation of identical parameters.
     """
-    # Ensure inputs are numpy arrays for vectorization
-    S = np.asarray(S)
-    K = np.asarray(K)
-    T = np.asarray(T)
-    sigma = np.asarray(sigma)
-    r = np.asarray(r)
+    if T <= 0 or sigma <= 0:
+        return 0.0
     
-    # Handle edge cases
-    T = np.where(T <= 0, 1e-10, T)  # Avoid division by zero
-    sigma = np.where(sigma <= 0, 1e-10, sigma)  # Avoid division by zero
-    
-    d1 = (np.log(S/K) + (r + sigma**2/2)*T) / (sigma * np.sqrt(T))
-    d2 = d1 - sigma * np.sqrt(T)
+    sqrt_T = np.sqrt(T)
+    d1 = (np.log(S/K) + (r + 0.5 * sigma**2) * T) / (sigma * sqrt_T)
+    d2 = d1 - sigma * sqrt_T
     
     if option_type == 'C':
-        price = S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
+        return S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
     else:  # Put option
-        price = K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1)
-    
-    return price
+        return K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1)
 
-@st.cache_data(show_spinner=False)
-def create_heatmap_matrix_vectorized(spot_prices, volatilities, strike, interest_rate, days_to_exp, option_type='C'):
+def blackscholes_vectorized(r, S_array, K, T, sigma_array, option_type='C'):
     """
-    Vectorized heatmap matrix computation - much faster than nested loops
+    Vectorized Black-Scholes computation for arrays of spot prices and volatilities.
+    Much faster than loops for matrix calculations.
     """
-    T = days_to_exp / 365
+    if T <= 0:
+        return np.zeros((len(S_array), len(sigma_array)))
     
     # Create meshgrids for vectorized computation
-    S_mesh, sigma_mesh = np.meshgrid(spot_prices, volatilities, indexing='ij')
+    S_grid, sigma_grid = np.meshgrid(S_array, sigma_array, indexing='ij')
     
-    # Vectorized Black-Scholes calculation
-    prices = black_scholes_vectorized(
-        interest_rate, S_mesh, strike, T, sigma_mesh, option_type
-    )
+    # Vectorized calculations
+    sqrt_T = np.sqrt(T)
+    d1 = (np.log(S_grid/K) + (r + 0.5 * sigma_grid**2) * T) / (sigma_grid * sqrt_T)
+    d2 = d1 - sigma_grid * sqrt_T
+    
+    if option_type == 'C':
+        prices = S_grid * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
+    else:  # Put option
+        prices = K * np.exp(-r * T) * norm.cdf(-d2) - S_grid * norm.cdf(-d1)
     
     return np.round(prices, 2)
 
-def compute_heatmap_chunk(args):
-    """Helper function for parallel heatmap computation"""
-    spot_chunk, volatilities, strike, interest_rate, days_to_exp, option_type = args
-    return create_heatmap_matrix_vectorized(
-        spot_chunk, volatilities, strike, interest_rate, days_to_exp, option_type
-    )
-
-@st.cache_data(show_spinner=False)
-def create_heatmap_parallel(spot_prices, volatilities, strike, interest_rate, days_to_exp, option_type='C', max_workers=None):
+def simulate_paths_optimized(S0, r, sigma, T, n_paths, n_steps, random_seed=None):
     """
-    Parallel heatmap computation for large grids
+    Optimized Monte Carlo path simulation using vectorized operations.
+    
+    Parameters:
+    - S0: Initial stock price
+    - r: Risk-free rate
+    - sigma: Volatility
+    - T: Time to expiration
+    - n_paths: Number of simulation paths
+    - n_steps: Number of time steps
+    - random_seed: Random seed for reproducibility
     """
-    if max_workers is None:
-        max_workers = min(4, os.cpu_count() or 1)
+    if random_seed is not None:
+        np.random.seed(random_seed)
     
-    # For smaller grids, vectorized is faster than parallel overhead
-    if len(spot_prices) * len(volatilities) < 400:
-        return create_heatmap_matrix_vectorized(
-            spot_prices, volatilities, strike, interest_rate, days_to_exp, option_type
-        )
-    
-    # Split spot prices into chunks for parallel processing
-    chunk_size = max(1, len(spot_prices) // max_workers)
-    chunks = [spot_prices[i:i + chunk_size] for i in range(0, len(spot_prices), chunk_size)]
-    
-    # Prepare arguments for each chunk
-    chunk_args = [(chunk, volatilities, strike, interest_rate, days_to_exp, option_type) 
-                  for chunk in chunks]
-    
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        results = list(executor.map(compute_heatmap_chunk, chunk_args))
-    
-    # Combine results
-    return np.vstack(results)
-
-@st.cache_data(show_spinner=False)
-def monte_carlo_simulation_vectorized(S0, r, sigma, T, n_simulations, n_steps):
-    """
-    Vectorized Monte Carlo simulation - much faster than loops
-    """
     dt = T / n_steps
+    sqrt_dt = np.sqrt(dt)
     
-    # Generate all random numbers at once
-    Z = np.random.standard_normal((n_steps, n_simulations))
+    # Pre-allocate arrays for better memory usage
+    paths = np.zeros((n_steps + 1, n_paths))
+    paths[0] = S0
     
-    # Vectorized path calculation using cumulative sum
+    # Vectorized random number generation
+    randoms = np.random.normal(0, 1, (n_steps, n_paths))
+    
+    # Vectorized path calculation
     drift = (r - 0.5 * sigma**2) * dt
-    diffusion = sigma * np.sqrt(dt) * Z
+    diffusion = sigma * sqrt_dt * randoms
     
-    # Calculate log prices, then exponentiate
+    # Calculate cumulative returns and apply to paths
     log_returns = drift + diffusion
     log_prices = np.cumsum(log_returns, axis=0)
+    paths[1:] = S0 * np.exp(log_prices)
     
-    # Add initial price and convert to actual prices
-    log_prices = np.vstack([np.zeros(n_simulations), log_prices])
-    prices = S0 * np.exp(log_prices)
-    
-    return prices
+    return paths
 
-def compute_option_payoffs_vectorized(final_prices, strike, option_type):
-    """Vectorized option payoff calculation"""
-    if option_type == 'Call':
-        return np.maximum(final_prices - strike, 0)
+def parallel_option_pricing(spot_prices, volatilities, K, r, T, option_type='C'):
+    """
+    Parallel computation of option prices using thread pool.
+    Divides computation across available CPU cores.
+    """
+    def compute_chunk(spot_chunk, vol_array):
+        return blackscholes_vectorized(r, spot_chunk, K, T, vol_array, option_type)
+    
+    # Split spot prices into chunks for parallel processing
+    n_chunks = min(OPTIMAL_THREADS, len(spot_prices))
+    chunk_size = len(spot_prices) // n_chunks
+    chunks = [spot_prices[i:i + chunk_size] for i in range(0, len(spot_prices), chunk_size)]
+    
+    results = []
+    with ThreadPoolExecutor(max_workers=OPTIMAL_THREADS) as executor:
+        futures = [executor.submit(compute_chunk, chunk, volatilities) for chunk in chunks]
+        
+        for future in as_completed(futures):
+            results.append(future.result())
+    
+    return np.vstack(results)
+
+@st.cache_data(ttl=300)  # Cache for 5 minutes
+def compute_heatmap_matrix(spot_prices, volatilities, strike, interest_rate, days_to_exp, option_type='C'):
+    """
+    Cached heatmap matrix computation with automatic cache invalidation.
+    """
+    T = days_to_exp / 365
+    
+    if len(spot_prices) * len(volatilities) > 400:  # Use parallel for large matrices
+        return parallel_option_pricing(spot_prices, volatilities, strike, interest_rate, T, option_type)
+    else:
+        return blackscholes_vectorized(interest_rate, spot_prices, strike, T, volatilities, option_type)
+
+@st.cache_data(ttl=300, max_entries=10)
+def generate_monte_carlo_simulation(underlying_price, risk_free_rate, volatility, days_to_maturity, 
+                                  selected_strike, trade_type, n_simulations, timeshot_ratio):
+    """
+    Cached Monte Carlo simulation with optimized computation.
+    """
+    T = days_to_maturity / 365
+    timeshot_T = timeshot_ratio * T
+    n_steps = max(int(days_to_maturity), 50)  # Minimum 50 steps for accuracy
+    
+    # Generate paths using optimized function
+    paths = simulate_paths_optimized(underlying_price, risk_free_rate, volatility, 
+                                   T, n_simulations, n_steps, random_seed=42)
+    
+    # Calculate time index for timeshot
+    time_index = int(timeshot_ratio * n_steps)
+    final_prices = paths[time_index]
+    
+    # Vectorized option payoff calculation
+    if trade_type == 'Call':
+        option_payoffs = np.maximum(final_prices - selected_strike, 0)
     else:  # Put
-        return np.maximum(strike - final_prices, 0)
+        option_payoffs = np.maximum(selected_strike - final_prices, 0)
+    
+    return final_prices, option_payoffs
 
-### Input validation functions ###
-def validate_inputs(spot, strike, days, rate, vol):
-    """Validate user inputs"""
-    errors = []
-    
-    if spot <= 0:
-        errors.append("Spot price must be positive")
-    if strike <= 0:
-        errors.append("Strike price must be positive")
-    if days <= 0:
-        errors.append("Days to maturity must be positive")
-    if rate < -1 or rate > 1:
-        errors.append("Interest rate should be between -100% and 100%")
-    if vol <= 0 or vol > 5:
-        errors.append("Volatility should be between 0% and 500%")
-    
-    return errors
+#### Sidebar parameters (Optimized with better organization) ###############################################
+st.sidebar.header('📊 Option Parameters')
 
-### UI Components ###
-def create_sidebar():
-    """Create optimized sidebar with input validation"""
-    st.sidebar.header('📊 Option Parameters')
-    
-    with st.sidebar.expander("Basic Parameters", expanded=True):
-        spot_price = st.number_input('Spot Price ($)', 
-                                   value=100.0, min_value=0.01, step=0.01,
-                                   help="Current price of the underlying asset")
-        
-        option_type = st.selectbox("Contract Type", 
-                                 ['Call', 'Put'], 
-                                 help="Type of option contract")
-        
-        strike = st.number_input('Strike Price ($)', 
-                               value=100.0, min_value=0.01, step=0.01,
-                               help="Exercise price of the option")
-        
-        days_to_maturity = st.number_input('Days to Maturity', 
-                                         value=30, min_value=1, max_value=3650,
-                                         help="Time until option expiration")
-    
-    with st.sidebar.expander("Market Parameters"):
-        risk_free_rate = st.number_input('Risk-Free Rate (%)', 
-                                       value=5.0, min_value=-50.0, max_value=50.0, step=0.1,
-                                       help="Annualized risk-free interest rate") / 100
-        
-        volatility = st.number_input('Volatility (%)', 
-                                   value=20.0, min_value=0.1, max_value=500.0, step=0.1,
-                                   help="Annualized volatility of the underlying") / 100
-    
-    with st.sidebar.expander("P&L Parameters"):
-        purchase_price = st.number_input("Option Purchase Price ($)", 
-                                       value=0.0, min_value=0.0,
-                                       help="Price paid for the option")
-        transaction_cost = st.number_input("Transaction Cost ($)", 
-                                         value=0.0, min_value=0.0,
-                                         help="Cost per trade (buy/sell)")
-    
-    with st.sidebar.expander("Heatmap Parameters"):
-        col1, col2 = st.columns(2)
-        with col1:
-            min_spot = st.number_input('Min Spot', value=max(1, spot_price * 0.5))
-            min_vol = st.slider('Min Vol (%)', 1, 200, 10) / 100
-        with col2:
-            max_spot = st.number_input('Max Spot', value=spot_price * 1.5)
-            max_vol = st.slider('Max Vol (%)', 1, 200, 50) / 100
-        
-        grid_size = st.select_slider('Grid Size', 
-                                   options=[5, 10, 15, 20, 25], 
-                                   value=15,
-                                   help="Larger grids take more time to compute")
-    
-    with st.sidebar.expander("Simulation Parameters"):
-        n_simulations = st.select_slider('Simulations', 
-                                       options=[100, 500, 1000, 2500, 5000, 10000],
-                                       value=1000,
-                                       help="More simulations = better accuracy but slower")
-        time_selection = st.radio('Time Interval', ['Days', 'Hours'], horizontal=True)
-    
-    return (spot_price, option_type, strike, days_to_maturity, risk_free_rate, volatility,
-            purchase_price, transaction_cost, min_spot, max_spot, min_vol, max_vol, 
-            grid_size, n_simulations, time_selection)
+# Market Data Section
+with st.sidebar.expander("🏢 Market Data", expanded=True):
+    underlying_price = st.number_input('Spot Price ($)', value=100.0, min_value=0.1, step=1.0)
+    trade_type = st.segmented_control("Contract Type", ['Call', 'Put'], default='Call')
+    selected_strike = st.number_input('Strike/Exercise Price ($)', value=80.0, min_value=0.1, step=1.0)
 
-### Main App ###
-def main():
-    st.title('⚡ Black-Scholes Options Pricing Dashboard')
-    st.markdown("*Optimized for performance with vectorized calculations and parallel processing*")
-    
-    # Get inputs from sidebar
-    (spot_price, option_type, strike, days_to_maturity, risk_free_rate, volatility,
-     purchase_price, transaction_cost, min_spot, max_spot, min_vol, max_vol, 
-     grid_size, n_simulations, time_selection) = create_sidebar()
-    
-    # Validate inputs
-    errors = validate_inputs(spot_price, strike, days_to_maturity, risk_free_rate, volatility)
-    if errors:
-        st.error("❌ Input Validation Errors:")
-        for error in errors:
-            st.error(f"• {error}")
-        return
-    
-    # Calculate option prices
-    with st.spinner("Computing option prices..."):
-        T = days_to_maturity / 365
-        call_price = black_scholes_vectorized(risk_free_rate, spot_price, strike, T, volatility, 'C')
-        put_price = black_scholes_vectorized(risk_free_rate, spot_price, strike, T, volatility, 'P')
-    
-    # Display current prices
-    col1, col2, col3, col4 = st.columns(4)
+# Time and Risk Section
+with st.sidebar.expander("⏱️ Time & Risk Parameters", expanded=True):
+    days_to_maturity = st.number_input('Days to Maturity', value=365, min_value=1, max_value=3650, step=1)
+    risk_free_rate = st.number_input('Risk-Free Rate (%)', value=10.0, min_value=0.0, max_value=100.0, step=0.1) / 100
+    volatility = st.number_input('Annualized Volatility (%)', value=20.0, min_value=0.1, max_value=200.0, step=0.1) / 100
+
+# Trading Parameters
+with st.sidebar.expander("💰 Trading Parameters"):
+    option_purchase_price = st.number_input("Option's Purchase Price ($)", value=0.0, min_value=0.0, step=0.01)
+    transaction_cost = st.number_input("Transaction Cost ($)", value=0.0, min_value=0.0, step=0.01)
+
+# Heatmap Configuration
+with st.sidebar.expander("🎯 Heatmap Configuration"):
+    col1, col2 = st.columns(2)
     with col1:
-        st.metric("📈 Call Price", f"${call_price:.3f}")
+        min_spot_price = st.number_input('Min Spot ($)', value=50.0, min_value=0.1)
+        min_vol = st.slider('Min Vol (%)', 1, 100, 5) / 100
     with col2:
-        st.metric("📉 Put Price", f"${put_price:.3f}")
-    with col3:
-        current_price = call_price if option_type == 'Call' else put_price
-        pl = current_price - purchase_price - 2 * transaction_cost
-        st.metric("💰 Current P&L", f"${pl:.2f}", delta=f"{pl:.2f}")
-    with col4:
-        time_value = current_price - max(0, spot_price - strike if option_type == 'Call' else strike - spot_price)
-        st.metric("⏰ Time Value", f"${time_value:.3f}")
+        max_spot_price = st.number_input('Max Spot ($)', value=110.0, min_value=min_spot_price + 1)
+        max_vol = st.slider('Max Vol (%)', 1, 200, 100) / 100
     
-    # Create tabs
-    tab1, tab2, tab3 = st.tabs(["🌡️ Options Heatmap", "💹 P&L Analysis", "📊 Monte Carlo Simulation"])
+    grid_size = st.slider('Grid Resolution', 5, 25, 10, 
+                         help="Higher resolution = better detail but slower computation")
+
+# Monte Carlo Configuration
+with st.sidebar.expander("🎲 Monte Carlo Parameters"):
+    n_simulations = st.slider('Simulations', 100, 20000, 1000, step=100,
+                             help="More simulations = higher accuracy but slower computation")
+    time_interval = st.radio('Time Interval Display', ['Days', 'Hours', 'Minutes'], 
+                           horizontal=True, help='Visual display unit only')
+    timeshot = st.slider("Analysis Timepoint", 0.0, 1.0, 1.0, step=0.01,
+                        help="Fraction of time to maturity (0=now, 1=expiration)")
+
+# Performance indicator
+st.sidebar.info(f"🚀 Using {OPTIMAL_THREADS} threads for optimal performance")
+
+#### Main Application ########################################################
+st.header('⚡ Optimized Black-Scholes Options Analytics')
+st.write("High-performance option pricing with real-time analysis and Monte Carlo simulations.")
+
+# Pre-compute arrays
+spot_prices_space = np.linspace(min_spot_price, max_spot_price, grid_size)
+volatilities_space = np.linspace(min_vol, max_vol, grid_size)
+
+# Calculate current option values
+with st.spinner('Computing option values...'):
+    call_price = blackscholes_cached(risk_free_rate, underlying_price, selected_strike, 
+                                   days_to_maturity / 365, volatility, 'C')
+    put_price = blackscholes_cached(risk_free_rate, underlying_price, selected_strike, 
+                                  days_to_maturity / 365, volatility, 'P')
+
+# Display current values with better formatting
+col1, col2, col3 = st.columns(3)
+with col1:
+    st.metric("Call Option Value", f"${call_price:.3f}")
+with col2:
+    st.metric("Put Option Value", f"${put_price:.3f}")
+with col3:
+    selected_price = call_price if trade_type == 'Call' else put_price
+    pl_current = selected_price - option_purchase_price - 2 * transaction_cost
+    st.metric("Current P&L", f"${pl_current:.2f}", 
+             delta=f"${pl_current:.2f}", delta_color="normal")
+
+# Tabs for different analyses
+tab1, tab2, tab3 = st.tabs(["🎯 Option Pricing Heatmap", "📈 P&L Analysis", "🎲 Monte Carlo Simulation"])
+
+with tab1:
+    st.subheader("Option Value Sensitivity Analysis")
+    st.write("Explore how option values change with spot price and volatility variations.")
     
-    with tab1:
-        st.subheader("Option Values vs Spot Price & Volatility")
-        
-        with st.spinner("Generating heatmap..."):
-            # Create price and volatility ranges
-            spot_range = np.linspace(min_spot, max_spot, grid_size)
-            vol_range = np.linspace(min_vol, max_vol, grid_size)
-            
-            # Compute heatmap using parallel processing for large grids
-            heatmap_data = create_heatmap_parallel(
-                spot_range, vol_range, strike, risk_free_rate, 
-                days_to_maturity, option_type
-            )
-        
-        # Create heatmap
-        fig, ax = plt.subplots(figsize=(12, 8))
-        
-        sns.heatmap(heatmap_data.T, 
-                    annot=grid_size <= 15,  # Only show annotations for smaller grids
-                    fmt='.1f',
-                    xticklabels=[f'{x:.0f}' for x in spot_range[::max(1, len(spot_range)//10)]],
-                    yticklabels=[f'{y:.0%}' for y in vol_range[::max(1, len(vol_range)//10)]],
-                    ax=ax,
-                    cmap='viridis',
-                    cbar_kws={'label': f'{option_type} Option Value ($)'})
-        
-        ax.set_title(f'{option_type} Option Heatmap (Strike: ${strike})', fontsize=16, pad=20)
-        ax.set_xlabel('Spot Price ($)', fontsize=12)
-        ax.set_ylabel('Volatility', fontsize=12)
-        
-        # Add current position marker
-        spot_idx = np.argmin(np.abs(spot_range - spot_price))
-        vol_idx = np.argmin(np.abs(vol_range - volatility))
-        ax.scatter(spot_idx, vol_idx, color='red', s=100, marker='x', linewidth=3)
-        ax.text(spot_idx, vol_idx-0.5, 'Current', ha='center', va='top', color='red', fontweight='bold')
-        
-        st.pyplot(fig, use_container_width=True)
-        plt.close(fig)
-    
-    with tab2:
-        st.subheader("Profit & Loss Analysis")
-        
-        if purchase_price == 0:
-            st.info("💡 Set an option purchase price in the sidebar to see P&L analysis")
+    # Only compute the needed matrix based on trade type
+    with st.spinner('Computing heatmap matrices...'):
+        if trade_type == 'Call':
+            output_matrix = compute_heatmap_matrix(spot_prices_space, volatilities_space, 
+                                                 selected_strike, risk_free_rate, 
+                                                 days_to_maturity, 'C')
+            title = 'Call Option'
+            color_label = 'Call Value ($)'
         else:
-            with st.spinner("Computing P&L heatmap..."):
-                # Reuse heatmap data and compute P&L
-                spot_range = np.linspace(min_spot, max_spot, grid_size)
-                vol_range = np.linspace(min_vol, max_vol, grid_size)
-                
-                option_values = create_heatmap_parallel(
-                    spot_range, vol_range, strike, risk_free_rate, 
-                    days_to_maturity, option_type
-                )
-                
-                pl_data = option_values - purchase_price - 2 * transaction_cost
-            
-            # P&L metrics
-            current_pl = (call_price if option_type == 'Call' else put_price) - purchase_price - 2 * transaction_cost
-            max_profit = np.max(pl_data)
-            max_loss = np.min(pl_data)
-            
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Current P&L", f"${current_pl:.2f}")
-            col2.metric("Max Potential Profit", f"${max_profit:.2f}")
-            col3.metric("Max Potential Loss", f"${max_loss:.2f}")
-            
-            # P&L Heatmap
-            fig, ax = plt.subplots(figsize=(12, 8))
-            
-            sns.heatmap(pl_data.T,
-                       annot=grid_size <= 15,
-                       fmt='.1f',
-                       xticklabels=[f'{x:.0f}' for x in spot_range[::max(1, len(spot_range)//10)]],
-                       yticklabels=[f'{y:.0%}' for y in vol_range[::max(1, len(vol_range)//10)]],
-                       ax=ax,
-                       cmap='RdYlGn',
-                       center=0,
-                       cbar_kws={'label': 'P&L ($)'})
-            
-            ax.set_title(f'{option_type} Option P&L Analysis', fontsize=16, pad=20)
-            ax.set_xlabel('Spot Price ($)', fontsize=12)
-            ax.set_ylabel('Volatility', fontsize=12)
-            
-            # Add current position marker
-            spot_idx = np.argmin(np.abs(spot_range - spot_price))
-            vol_idx = np.argmin(np.abs(vol_range - volatility))
-            ax.scatter(spot_idx, vol_idx, color='blue', s=100, marker='o', linewidth=2)
-            
-            st.pyplot(fig, use_container_width=True)
-            plt.close(fig)
+            output_matrix = compute_heatmap_matrix(spot_prices_space, volatilities_space, 
+                                                 selected_strike, risk_free_rate, 
+                                                 days_to_maturity, 'P')
+            title = 'Put Option'
+            color_label = 'Put Value ($)'
     
-    with tab3:
-        st.subheader("Monte Carlo Simulation")
+    # Create optimized heatmap
+    fig, ax = plt.subplots(figsize=(12, 8))
+    
+    sns.heatmap(output_matrix.T, annot=True, fmt='.1f',
+                xticklabels=[f"{x:.1f}" for x in spot_prices_space],
+                yticklabels=[f"{y:.2f}" for y in volatilities_space],
+                cbar_kws={'label': color_label}, ax=ax)
+    
+    ax.set_title(f'{title} Value Heatmap', fontsize=16, fontweight='bold')
+    ax.set_xlabel('Spot Price ($)', fontsize=12)
+    ax.set_ylabel('Annualized Volatility', fontsize=12)
+    
+    st.pyplot(fig)
+    plt.close(fig)  # Explicit cleanup
+
+with tab2:
+    st.subheader("Profit & Loss Analysis")
+    st.write("Expected P&L analysis across different market scenarios.")
+    
+    # Calculate P&L matrix
+    with st.spinner('Computing P&L analysis...'):
+        if trade_type == 'Call':
+            option_matrix = compute_heatmap_matrix(spot_prices_space, volatilities_space, 
+                                                 selected_strike, risk_free_rate, 
+                                                 days_to_maturity, 'C')
+        else:
+            option_matrix = compute_heatmap_matrix(spot_prices_space, volatilities_space, 
+                                                 selected_strike, risk_free_rate, 
+                                                 days_to_maturity, 'P')
         
-        with st.expander("📖 Methodology"):
-            st.markdown("""
-            **Geometric Brownian Motion Simulation:**
-            
-            The simulation models the underlying asset price as:
-            
-            $$S(t) = S(0) \\cdot e^{(r - \\frac{\\sigma^2}{2})t + \\sigma W(t)}$$
-            
-            Where:
-            - $S(0)$ = Current spot price
-            - $r$ = Risk-free rate  
-            - $\\sigma$ = Volatility
-            - $W(t)$ = Wiener process (Brownian motion)
-            """)
+        pl_matrix = option_matrix.T - option_purchase_price - 2 * transaction_cost
+    
+    # Display expected P&L for current parameters
+    st.success(f"Expected P&L at current parameters: **${pl_current:.2f}**")
+    
+    # Create P&L heatmap
+    fig, ax = plt.subplots(figsize=(12, 8))
+    
+    # Use diverging colormap centered at zero
+    colormap = sns.diverging_palette(10, 150, as_cmap=True)
+    
+    sns.heatmap(pl_matrix, annot=True, fmt='.1f',
+                xticklabels=[f"{x:.1f}" for x in spot_prices_space],
+                yticklabels=[f"{y:.2f}" for y in volatilities_space],
+                cmap=colormap, center=0, ax=ax,
+                cbar_kws={'label': 'Expected P&L ($)'})
+    
+    ax.set_title(f'{trade_type} Expected P&L Heatmap', fontsize=16, fontweight='bold')
+    ax.set_xlabel('Spot Price ($)', fontsize=12)
+    ax.set_ylabel('Annualized Volatility', fontsize=12)
+    
+    st.pyplot(fig)
+    plt.close(fig)
+
+with tab3:
+    st.subheader("Monte Carlo Simulation Analysis")
+    st.write('Statistical analysis of expected outcomes using Monte Carlo methods.')
+    
+    with st.expander("📚 Methodology", expanded=False):
+        st.write('The distribution is obtained by simulating **N** times the underlying asset price as a geometric Brownian motion:')
+        st.latex(r'S(t) = S(0) \cdot e^{(\mu - \sigma^2 / 2)t + \sigma W(t)}')
+        st.write('Where μ is the risk-free rate, σ is the annualized volatility, and W(t) is a Wiener process.')
+    
+    # Run Monte Carlo simulation
+    with st.spinner('Running Monte Carlo simulation...'):
+        final_prices, option_payoffs = generate_monte_carlo_simulation(
+            underlying_price, risk_free_rate, volatility, days_to_maturity,
+            selected_strike, trade_type, n_simulations, timeshot
+        )
         
-        # Simulation parameters
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            evaluation_day = st.slider("Evaluation Day", 0, days_to_maturity, days_to_maturity, 
-                                     help="Day to evaluate option value")
-        with col2:
-            confidence_level = st.select_slider("Confidence Level", [90, 95, 99], value=95)
-        
-        with st.spinner(f"Running {n_simulations:,} Monte Carlo simulations..."):
-            # Determine time steps based on selection
-            if time_selection == 'Hours':
-                n_steps = days_to_maturity * 24
-            else:
-                n_steps = days_to_maturity
-            
-            # Run vectorized simulation
-            T = days_to_maturity / 365
-            price_paths = monte_carlo_simulation_vectorized(
-                spot_price, risk_free_rate, volatility, T, n_simulations, n_steps
-            )
-            
-            # Get evaluation day index
-            eval_idx = int((evaluation_day / days_to_maturity) * n_steps)
-            final_prices = price_paths[eval_idx, :]
-            
-            # Calculate option payoffs
-            option_payoffs = compute_option_payoffs_vectorized(final_prices, strike, option_type)
-            
-            # Calculate P&L
-            pl_results = option_payoffs - purchase_price - 2 * transaction_cost
-        
-        # Simulation results
-        itm_prob = np.mean(option_payoffs > 0)
-        positive_pl_prob = np.mean(pl_results > 0) if purchase_price > 0 else 0
-        
-        # Confidence intervals
-        price_percentiles = np.percentile(final_prices, [50-confidence_level/2, 50, 50+confidence_level/2])
-        
-        # Display metrics
-        metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
-        metric_col1.metric("ITM Probability", f"{itm_prob:.1%}")
-        metric_col2.metric("Positive P&L Prob", f"{positive_pl_prob:.1%}")
-        metric_col3.metric("Expected Price", f"${np.mean(final_prices):.2f}")
-        metric_col4.metric(f"{confidence_level}% Price Range", 
-                          f"${price_percentiles[0]:.0f} - ${price_percentiles[2]:.0f}")
-        
-        # Create visualizations
-        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
-        
-        # Price distribution
-        ax1.hist(final_prices, bins=50, alpha=0.7, density=True, color='skyblue', edgecolor='black')
-        ax1.axvline(strike, color='red', linestyle='--', linewidth=2, label=f'Strike: ${strike}')
-        ax1.axvline(spot_price, color='green', linestyle='--', linewidth=2, label=f'Current: ${spot_price}')
-        ax1.set_title(f'Price Distribution (Day {evaluation_day})')
-        ax1.set_xlabel('Price ($)')
-        ax1.set_ylabel('Density')
+        pl_results = option_payoffs - option_purchase_price - 2 * transaction_cost
+    
+    # Calculate probabilities
+    otm_probability = np.mean(option_payoffs == 0)
+    itm_probability = 1 - otm_probability
+    positive_pl_probability = np.mean(pl_results > 0)
+    
+    # Display key metrics
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("ITM Probability", f"{itm_probability:.1%}")
+    col2.metric("OTM Probability", f"{otm_probability:.1%}")
+    col3.metric("Profitable Trades", f"{positive_pl_probability:.1%}")
+    col4.metric("Average P&L", f"${np.mean(pl_results):.2f}")
+    
+    # Create distribution plots
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        fig1, ax1 = plt.subplots(figsize=(8, 6))
+        sns.histplot(final_prices, kde=True, stat='probability', ax=ax1, alpha=0.7)
+        ax1.axvline(selected_strike, color='red', linestyle='--', 
+                   label=f'Strike: ${selected_strike}', linewidth=2)
+        ax1.set_xlabel('Stock Price ($)')
+        ax1.set_ylabel('Probability')
+        ax1.set_title(f'Price Distribution at t={timeshot:.2f}T')
         ax1.legend()
-        ax1.grid(True, alpha=0.3)
+        st.pyplot(fig1)
+        plt.close(fig1)
+    
+    with col2:
+        fig2, (ax2, ax3) = plt.subplots(2, 1, figsize=(8, 6))
         
         # Option payoff distribution
-        ax2.hist(option_payoffs, bins=50, alpha=0.7, density=True, color='lightgreen', edgecolor='black')
-        ax2.set_title(f'{option_type} Option Payoff Distribution')
-        ax2.set_xlabel('Payoff ($)')
-        ax2.set_ylabel('Density')
-        ax2.grid(True, alpha=0.3)
+        sns.histplot(option_payoffs, kde=True, stat='probability', ax=ax2, alpha=0.7)
+        ax2.set_xlabel('Option Payoff ($)')
+        ax2.set_ylabel('Probability')
+        ax2.set_title(f'{trade_type} Payoff Distribution')
         
-        # P&L distribution (if purchase price is set)
-        if purchase_price > 0:
-            ax3.hist(pl_results, bins=50, alpha=0.7, density=True, 
-                    color=['red' if x < 0 else 'green' for x in np.histogram(pl_results, bins=50)[1][:-1]], 
-                    edgecolor='black')
-            ax3.axvline(0, color='black', linestyle='-', linewidth=2)
-            ax3.set_title('P&L Distribution')
-            ax3.set_xlabel('P&L ($)')
-            ax3.set_ylabel('Density')
-            ax3.grid(True, alpha=0.3)
-        else:
-            ax3.text(0.5, 0.5, 'Set purchase price\nto see P&L analysis', 
-                    ha='center', va='center', transform=ax3.transAxes, fontsize=12)
-            ax3.set_title('P&L Distribution')
-        
-        # Sample price paths
-        sample_paths = price_paths[:, :min(100, n_simulations)]  # Show max 100 paths
-        time_axis = np.linspace(0, days_to_maturity, n_steps + 1)
-        
-        ax4.plot(time_axis, sample_paths, alpha=0.1, color='blue')
-        ax4.plot(time_axis, np.mean(price_paths, axis=1), color='red', linewidth=2, label='Mean Path')
-        ax4.axhline(strike, color='red', linestyle='--', linewidth=2, label=f'Strike: ${strike}')
-        ax4.axvline(evaluation_day, color='orange', linestyle=':', linewidth=2, label=f'Eval Day: {evaluation_day}')
-        ax4.set_title('Sample Price Paths')
-        ax4.set_xlabel('Days')
-        ax4.set_ylabel('Price ($)')
-        ax4.legend()
-        ax4.grid(True, alpha=0.3)
+        # P&L distribution
+        sns.histplot(pl_results, kde=True, stat='probability', ax=ax3, alpha=0.7, 
+                    color='green' if np.mean(pl_results) > 0 else 'red')
+        ax3.axvline(0, color='black', linestyle='--', alpha=0.7)
+        ax3.set_xlabel('P&L ($)')
+        ax3.set_ylabel('Probability')
+        ax3.set_title('P&L Distribution')
         
         plt.tight_layout()
-        st.pyplot(fig, use_container_width=True)
-        plt.close(fig)
+        st.pyplot(fig2)
+        plt.close(fig2)
 
-if __name__ == "__main__":
-    main()
+# Footer with performance info
+st.divider()
+st.caption(f"⚡ Optimized for performance • Using {OPTIMAL_THREADS} CPU threads • Cached computations • Vectorized operations")
