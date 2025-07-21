@@ -212,8 +212,8 @@ with tab3 :
 
     t32_col1, t32_col2, t32_col3 = st.columns(3)
     t32_col1.metric("In-the money probability", itm_probability, border = True)
-t32_col2.metric("Out-the money probability", otm_probability,border = True )
-t32_col3.metric("Positive P&L probability", positive_pl_proba,border = True )
+    t32_col2.metric("Out-the money probability", otm_probability,border = True )
+    t32_col3.metric("Positive P&L probability", positive_pl_proba,border = True )
     #### Plots
 
     t33_col1, t33_col2 = st.columns(2)
