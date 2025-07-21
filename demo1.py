@@ -375,4 +375,4 @@ with tab3:
 
 # Footer with performance info
 st.divider()
-st.caption(f"⚡ Optimized for performance • Using {OPTIMAL_THREADS} CPU threads • Cached computations • Vectorized operations")
+st.caption(f" Optimized for performance • Using {OPTIMAL_THREADS} CPU threads • Cached computations • Vectorized operations")
