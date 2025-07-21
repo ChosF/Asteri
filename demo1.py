@@ -161,8 +161,8 @@ def generate_monte_carlo_simulation(underlying_price, risk_free_rate, volatility
     
     return final_prices, option_payoffs
 
-#### Sidebar parameters (Optimized with better organization) ###############################################
-st.sidebar.header('📊 Option Parameters')
+#### Sidebar parameters ###############################################
+st.sidebar.header('Option Parameters')
 
 # Market Data Section
 with st.sidebar.expander("🏢 Market Data", expanded=True):
@@ -204,11 +204,11 @@ with st.sidebar.expander("🎲 Monte Carlo Parameters"):
                         help="Fraction of time to maturity (0=now, 1=expiration)")
 
 # Performance indicator
-st.sidebar.info(f"🚀 Using {OPTIMAL_THREADS} threads for optimal performance")
+# st.sidebar.info(f"🚀 Using {OPTIMAL_THREADS} threads for optimal performance")
 
 #### Main Application ########################################################
-st.header('⚡ Optimized Black-Scholes Options Analytics')
-st.write("High-performance option pricing with real-time analysis and Monte Carlo simulations.")
+st.header('Black Scholes options heatmap')
+st.write("Calculates an option's arbitrage-free premium using the Black Scholes option pricing model.")
 
 # Pre-compute arrays
 spot_prices_space = np.linspace(min_spot_price, max_spot_price, grid_size)
@@ -234,11 +234,10 @@ with col3:
              delta=f"${pl_current:.2f}", delta_color="normal")
 
 # Tabs for different analyses
-tab1, tab2, tab3 = st.tabs(["🎯 Option Pricing Heatmap", "📈 P&L Analysis", "🎲 Monte Carlo Simulation"])
+tab1, tab2, tab3 = st.tabs(["Option's fair value heatmap", "Option's P&L heatmap", "Expected underlying distribution"])
 
 with tab1:
-    st.subheader("Option Value Sensitivity Analysis")
-    st.write("Explore how option values change with spot price and volatility variations.")
+    st.write("Explore different contract's values given variations in Spot Prices and Annualized Volatilities")
     
     # Only compute the needed matrix based on trade type
     with st.spinner('Computing heatmap matrices...'):
@@ -271,8 +270,7 @@ with tab1:
     plt.close(fig)  # Explicit cleanup
 
 with tab2:
-    st.subheader("Profit & Loss Analysis")
-    st.write("Expected P&L analysis across different market scenarios.")
+    st.write("Explore different expected P&L's from a specific contract trade given variations in the Spot Price and Annualized Volatility ")
     
     # Calculate P&L matrix
     with st.spinner('Computing P&L analysis...'):
@@ -288,7 +286,7 @@ with tab2:
         pl_matrix = option_matrix.T - option_purchase_price - 2 * transaction_cost
     
     # Display expected P&L for current parameters
-    st.success(f"Expected P&L at current parameters: **${pl_current:.2f}**")
+    st.markdown(f':green-badge[Expected P&L given selected parameters: **{pl_current:.2f}**]')
     
     # Create P&L heatmap
     fig, ax = plt.subplots(figsize=(12, 8))
@@ -310,13 +308,13 @@ with tab2:
     plt.close(fig)
 
 with tab3:
-    st.subheader("Monte Carlo Simulation Analysis")
-    st.write('Statistical analysis of expected outcomes using Monte Carlo methods.')
+    st.write('Calculate the expected distribution of the underlying asset price, the option premium and the p&l from trading the option')
     
-    with st.expander("📚 Methodology", expanded=False):
-        st.write('The distribution is obtained by simulating **N** times the underlying asset price as a geometric Brownian motion:')
-        st.latex(r'S(t) = S(0) \cdot e^{(\mu - \sigma^2 / 2)t + \sigma W(t)}')
-        st.write('Where μ is the risk-free rate, σ is the annualized volatility, and W(t) is a Wiener process.')
+    with st.expander("See methodology"):
+        st.write('The distribution is obtained by simulating $N$ times the underlying asset price as a geometric brownian process during a specified time period.' \
+        ' The function $S : [0, \infty) \mapsto [0, \infty) $ will describe the stochastic process as: ')
+        st.latex('S(t) = S(0) e^{(\mu - \sigma^2 / 2)t + \sigma W(t)} ')
+        st.write('Where $\mu$ is the risk free rate, $\sigma$ the annualized volatility of the asset you want to simulate and $S(0)$ the asset price at the beginning (spot price)')
     
     # Run Monte Carlo simulation
     with st.spinner('Running Monte Carlo simulation...'):
