@@ -6,20 +6,18 @@ st.set_page_config(
 )
 
 import numpy as np
-import plotly.express as px
 import plotly.graph_objects as go
+import plotly.express as px
 from plotly.subplots import make_subplots
 from scipy.stats import norm
-import pandas as pd
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from threading import Thread
 import time
 
 # Custom CSS for modern UX with light/dark mode support
 st.markdown("""
 <style>
     .main > div {
-        padding-top: 1rem;
+        padding-top: 2rem;
     }
     
     .stTabs [data-baseweb="tab-list"] {
@@ -27,8 +25,7 @@ st.markdown("""
         background: rgba(255, 255, 255, 0.1);
         border-radius: 12px;
         padding: 8px;
-        margin-bottom: 20px;
-        margin-top: 30px;
+        margin-bottom: 30px;
     }
     
     .stTabs [data-baseweb="tab"] {
@@ -50,18 +47,24 @@ st.markdown("""
         padding: 15px;
         border: 1px solid rgba(255, 255, 255, 0.1);
         transition: all 0.3s ease;
-        margin-bottom: 8px;
-        text-align: center;
+        margin: 5px;
     }
     
     .metric-container:hover {
         transform: translateY(-2px);
-        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
     }
     
-    .metric-separator {
-        height: 30px;
-        margin: 20px 0;
+    .metric-container h3 {
+        font-size: 14px;
+        margin: 0 0 8px 0;
+        opacity: 0.8;
+    }
+    
+    .metric-container h2 {
+        font-size: 22px;
+        margin: 0;
+        font-weight: 600;
     }
     
     .sidebar .stNumberInput, .sidebar .stSelectbox, .sidebar .stSlider {
@@ -72,6 +75,13 @@ st.markdown("""
         background: rgba(255, 255, 255, 0.02);
         backdrop-filter: blur(20px);
         border-radius: 0 16px 16px 0;
+    }
+    
+    .separator {
+        height: 2px;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+        margin: 25px 0;
+        border-radius: 1px;
     }
     
     .expander-content {
@@ -189,6 +199,59 @@ def simulate_paths(ns, days_to_maturity, steps, volatility, risk_free_rate, unde
     # Combine all chunks
     return np.hstack(chunks)
 
+def create_interactive_heatmap(matrix, spot_prices, volatilities, title, colorscale='Viridis'):
+    """Create an interactive heatmap using Plotly"""
+    fig = go.Figure(data=go.Heatmap(
+        z=matrix.T,
+        x=[f"{x:.1f}" for x in spot_prices],
+        y=[f"{y:.2f}" for y in volatilities],
+        colorscale=colorscale,
+        showscale=True,
+        hoverongaps=False,
+        hovertemplate='Spot Price: %{x}<br>Volatility: %{y}<br>Value: %{z:.2f}<extra></extra>',
+        colorbar=dict(
+            title=dict(text="Value", side="right"),
+            thickness=15,
+            len=0.9
+        )
+    ))
+    
+    fig.update_layout(
+        title=dict(text=title, x=0.5, font=dict(size=16)),
+        xaxis_title="Spot Price",
+        yaxis_title="Annualized Volatility",
+        height=500,
+        margin=dict(l=60, r=80, t=60, b=60),
+        font=dict(size=12),
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)'
+    )
+    
+    return fig
+
+def create_interactive_histogram(data, title, xaxis_title, bins=50):
+    """Create an interactive histogram using Plotly"""
+    fig = go.Figure(data=[go.Histogram(
+        x=data,
+        nbinsx=bins,
+        opacity=0.7,
+        marker_color='#636EFA',
+        hovertemplate='Range: %{x}<br>Count: %{y}<extra></extra>'
+    )])
+    
+    fig.update_layout(
+        title=dict(text=title, x=0.5, font=dict(size=14)),
+        xaxis_title=xaxis_title,
+        yaxis_title="Frequency",
+        height=300,
+        margin=dict(l=50, r=50, t=50, b=50),
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)',
+        showlegend=False
+    )
+    
+    return fig
+
 ###############################################################################################################
 #### Sidebar Parameters ###############################################
 with st.sidebar:
@@ -235,23 +298,23 @@ put_price = BlackScholes(risk_free_rate, underlying_price, selected_strike, days
 col1, col2, col3 = st.columns([1, 1, 1])
 with col1:
     st.markdown(
-        f'<div class="metric-container"><h4>Call Value</h4><h3>${call_price:.3f}</h3></div>', 
+        f'<div class="metric-container"><h3>Call Value</h3><h2>${call_price:.3f}</h2></div>', 
         unsafe_allow_html=True
     )
 with col2:
     st.markdown(
-        f'<div class="metric-container"><h4>Put Value</h4><h3>${put_price:.3f}</h3></div>', 
+        f'<div class="metric-container"><h3>Put Value</h3><h2>${put_price:.3f}</h2></div>', 
         unsafe_allow_html=True
     )
 with col3:
     put_call_parity = call_price - put_price + selected_strike * np.exp(-risk_free_rate * days_to_maturity / 365) - underlying_price
     st.markdown(
-        f'<div class="metric-container"><h4>Put-Call Parity</h4><h3>${put_call_parity:.3f}</h3></div>', 
+        f'<div class="metric-container"><h3>Put-Call Parity</h3><h2>${put_call_parity:.3f}</h2></div>', 
         unsafe_allow_html=True
     )
 
-# Add separator between metrics and tabs
-st.markdown('<div class="metric-separator"></div>', unsafe_allow_html=True)
+# Add separator
+st.markdown('<div class="separator"></div>', unsafe_allow_html=True)
 
 # Generate spaces for calculations
 spot_prices_space = np.linspace(min_spot_price, max_spot_price, grid_size)
@@ -264,9 +327,6 @@ with tab1:
     st.write("Explore different contract's values given variations in Spot Prices and Annualized Volatilities")
     
     # Calculate matrices using threading
-    start_time = time.time()
-    
-    # Use threading for both call and put calculations
     with ThreadPoolExecutor(max_workers=2) as executor:
         future_call = executor.submit(HeatMapMatrix, spot_prices_space, volatilities_space, selected_strike, risk_free_rate, days_to_maturity, 'C')
         future_put = executor.submit(HeatMapMatrix, spot_prices_space, volatilities_space, selected_strike, risk_free_rate, days_to_maturity, 'P')
@@ -274,38 +334,22 @@ with tab1:
         output_matrix_c = future_call.result()
         output_matrix_p = future_put.result()
     
-    # Create interactive heatmaps using Plotly
+    # Create interactive heatmaps
     col1, col2 = st.columns(2)
     
     with col1:
-        # Call Options Heatmap
-        fig_call = px.imshow(
-            output_matrix_c.T,
-            x=[f"{x:.1f}" for x in spot_prices_space],
-            y=[f"{y:.2f}" for y in volatilities_space],
-            color_continuous_scale='Viridis',
-            title='Call Options Heatmap',
-            labels=dict(x="Spot Price", y="Annualized Volatility", color="Call Value"),
-            text_auto=True
+        call_heatmap = create_interactive_heatmap(
+            output_matrix_c, spot_prices_space, volatilities_space, 
+            "Call Options Heatmap", 'Blues'
         )
-        fig_call.update_layout(height=500, title_x=0.5)
-        fig_call.update_traces(texttemplate="%{z:.1f}", textfont_size=8)
-        st.plotly_chart(fig_call, use_container_width=True)
-
+        st.plotly_chart(call_heatmap, use_container_width=True)
+    
     with col2:
-        # Put Options Heatmap
-        fig_put = px.imshow(
-            output_matrix_p.T,
-            x=[f"{x:.1f}" for x in spot_prices_space],
-            y=[f"{y:.2f}" for y in volatilities_space],
-            color_continuous_scale='Plasma',
-            title='Put Options Heatmap',
-            labels=dict(x="Spot Price", y="Annualized Volatility", color="Put Value"),
-            text_auto=True
+        put_heatmap = create_interactive_heatmap(
+            output_matrix_p, spot_prices_space, volatilities_space, 
+            "Put Options Heatmap", 'Reds'
         )
-        fig_put.update_layout(height=500, title_x=0.5)
-        fig_put.update_traces(texttemplate="%{z:.1f}", textfont_size=8)
-        st.plotly_chart(fig_put, use_container_width=True)
+        st.plotly_chart(put_heatmap, use_container_width=True)
 
 with tab2:
     st.write("Explore different expected P&L's from a specific contract trade given variations in the Spot Price and Annualized Volatility")
@@ -322,23 +366,14 @@ with tab2:
         
         col1, col2 = st.columns([1, 2])
         with col1:
-            st.markdown(f'<div class="metric-container"><h4>Expected P&L given selected parameters</h4><h3>${specific_contract_pl:.2f}</h3></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-container"><h3>Expected P&L given selected parameters</h3><h2>${specific_contract_pl:.2f}</h2></div>', unsafe_allow_html=True)
         
         with col2:
-            # P&L Heatmap
-            fig_pl = px.imshow(
-                pl_options[selection],
-                x=[f"{x:.1f}" for x in spot_prices_space],
-                y=[f"{y:.2f}" for y in volatilities_space],
-                color_continuous_scale='RdBu_r',
-                title=f'{trade_type} Expected P&L Heatmap',
-                labels=dict(x="Spot Price", y="Annualized Volatility", color="P&L"),
-                text_auto=True,
-                color_continuous_midpoint=0
+            pl_heatmap = create_interactive_heatmap(
+                pl_options[selection].T, spot_prices_space, volatilities_space,
+                f'{trade_type} Expected P&L Heatmap', 'RdBu_r'
             )
-            fig_pl.update_layout(height=600, title_x=0.5)
-            fig_pl.update_traces(texttemplate="%{z:.1f}", textfont_size=8)
-            st.plotly_chart(fig_pl, use_container_width=True)
+            st.plotly_chart(pl_heatmap, use_container_width=True)
     else:
         st.info("Please calculate the fair value heatmaps first in Tab 1")
 
@@ -370,7 +405,6 @@ with tab3:
         step = days_to_maturity * 24 * 60 
     
     # Generate simulation paths using threading
-    start_sim_time = time.time()
     simulation_paths = simulate_paths(ns, days_to_maturity, step, volatility, risk_free_rate, underlying_price)
     
     def get_option_price(K, St, option_type='Call'):
@@ -398,62 +432,48 @@ with tab3:
     col1, col2, col3 = st.columns(3)
     with col1:
         st.markdown(
-            f'<div class="metric-container"><h4>In-the-money probability</h4><h3>{itm_probability}</h3></div>', 
+            f'<div class="metric-container"><h4>In-the-money probability</h4><h2>{itm_probability}</h2></div>', 
             unsafe_allow_html=True
         )
     with col2:
         st.markdown(
-            f'<div class="metric-container"><h4>Out-the-money probability</h4><h3>{otm_probability}</h3></div>', 
+            f'<div class="metric-container"><h4>Out-the-money probability</h4><h2>{otm_probability}</h2></div>', 
             unsafe_allow_html=True
         )
     with col3:
         st.markdown(
-            f'<div class="metric-container"><h4>Positive P&L probability</h4><h3>{positive_pl_proba}</h3></div>', 
+            f'<div class="metric-container"><h4>Positive P&L probability</h4><h2>{positive_pl_proba}</h2></div>', 
             unsafe_allow_html=True
         )
 
-    # Create interactive plots using Plotly
+    # Create interactive plots
     col1, col2 = st.columns(2)
     
     with col1:
-        # Underlying asset price distribution
         index_to_use = -int(step - timeshot * step + 1)
-        underlying_prices = simulation_paths[index_to_use, :]
-        
-        fig_underlying = px.histogram(
-            x=underlying_prices,
-            nbins=50,
-            title=f'Expected underlying asset price distribution at day {int(timeshot * 365)}',
-            labels={'x': 'Price', 'y': 'Frequency'},
-            marginal='box'
+        underlying_hist = create_interactive_histogram(
+            simulation_paths[index_to_use, :], 
+            f'Expected underlying asset price distribution at day {int(timeshot * 365)}',
+            'Price'
         )
-        fig_underlying.add_vline(x=selected_strike, line_dash="dash", line_color="red", 
-                               annotation_text="Strike Price")
-        fig_underlying.update_layout(height=400, title_x=0.5)
-        st.plotly_chart(fig_underlying, use_container_width=True)
+        # Add strike price line
+        underlying_hist.add_vline(x=selected_strike, line_dash="dash", line_color="red", 
+                                annotation_text="Strike price", annotation_position="top right")
+        st.plotly_chart(underlying_hist, use_container_width=True)
 
     with col2:
-        # Option premium distribution
-        fig_option = px.histogram(
-            x=option_prices,
-            nbins=30,
-            title=f'Expected {trade_type} premium at day {int(timeshot * 365)}',
-            labels={'x': 'Price', 'y': 'Frequency'},
-            marginal='box'
+        option_hist = create_interactive_histogram(
+            option_prices, 
+            f'Expected {trade_type} premium at day {int(timeshot * 365)}',
+            'Price'
         )
-        fig_option.update_layout(height=200, title_x=0.5)
-        st.plotly_chart(fig_option, use_container_width=True)
-        
-        # P&L distribution
-        fig_pl = px.histogram(
-            x=pl_results,
-            nbins=30,
-            title=f'Expected P&L distribution at day {int(timeshot * 365)}',
-            labels={'x': 'P&L', 'y': 'Frequency'},
-            marginal='box',
-            color_discrete_sequence=['orange']
-        )
-        fig_pl.add_vline(x=0, line_dash="dash", line_color="black", 
-                        annotation_text="Break-even")
-        fig_pl.update_layout(height=200, title_x=0.5)
-        st.plotly_chart(fig_pl, use_container_width=True)
+        st.plotly_chart(option_hist, use_container_width=True)
+
+    # P&L histogram spanning full width
+    pl_hist = create_interactive_histogram(
+        pl_results, 
+        f'Expected P&L distribution at day {int(timeshot * 365)}',
+        'P&L'
+    )
+    pl_hist.update_layout(height=400)
+    st.plotly_chart(pl_hist, use_container_width=True)
