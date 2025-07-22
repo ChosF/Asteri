@@ -1,6 +1,6 @@
-streamlit
 numpy
+streamlit
 matplotlib
 scipy
 seaborn
-plotly
+numba
