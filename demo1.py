@@ -17,184 +17,134 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import pandas as pd
 
-# Enhanced CSS with better browser compatibility and consistent theming
+# Modern CSS with better browser compatibility and light/dark mode support
 st.markdown("""
 <style>
-    /* Main container styling */
     .main > div {
-        padding-top: 1.5rem;
+        padding-top: 2rem;
     }
     
-    /* Tab styling with enhanced browser compatibility */
+    /* Tabs styling with better browser support */
     .stTabs [data-baseweb="tab-list"] {
-        background: rgba(0, 0, 0, 0.05);
+        background: rgba(128, 128, 128, 0.1);
         border-radius: 12px;
         padding: 8px;
-        margin: 20px 0;
-        border: 1px solid rgba(0, 0, 0, 0.1);
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-        -webkit-backdrop-filter: blur(10px);
-        backdrop-filter: blur(10px);
+        margin-bottom: 20px;
+        margin-top: 30px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     }
     
     .stTabs [data-baseweb="tab"] {
         border-radius: 8px;
-        padding: 10px 18px;
+        padding: 8px 16px;
         margin: 0 4px;
-        transition: all 0.2s ease;
-        font-weight: 500;
-        border: 1px solid transparent;
+        transition: all 0.3s ease;
     }
     
     .stTabs [data-baseweb="tab"]:hover {
-        background: rgba(0, 0, 0, 0.08);
-        transform: translateY(-1px);
-        border: 1px solid rgba(0, 0, 0, 0.1);
+        background: rgba(128, 128, 128, 0.15);
+        transform: translateY(-2px);
     }
     
-    /* Metric container with consistent theming */
+    /* Metric containers with fallback styling */
     .metric-container {
-        background: rgba(248, 250, 252, 0.8);
-        border: 1px solid rgba(226, 232, 240, 0.8);
-        border-radius: 10px;
-        padding: 16px;
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 8px;
+        padding: 12px;
+        border: 1px solid rgba(128, 128, 128, 0.2);
+        transition: all 0.3s ease;
         text-align: center;
-        margin-bottom: 12px;
-        transition: all 0.2s ease;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        margin-bottom: 10px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    }
+    
+    .metric-container h3 {
+        font-size: 0.85rem;
+        margin-bottom: 4px;
+        opacity: 0.8;
+    }
+    
+    .metric-container h2 {
+        font-size: 1.1rem;
+        margin: 0;
+        font-weight: 600;
     }
     
     .metric-container:hover {
         transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-        border-color: rgba(99, 102, 241, 0.2);
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
     }
     
-    .metric-container h3 {
-        font-size: 0.875rem;
-        margin-bottom: 6px;
-        color: rgba(71, 85, 105, 0.8);
-        font-weight: 500;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
+    .metric-separator {
+        margin: 25px 0;
+        border-bottom: 1px solid rgba(128, 128, 128, 0.2);
     }
     
-    .metric-container h2 {
-        font-size: 1.25rem;
-        margin: 0;
-        color: rgba(15, 23, 42, 0.9);
-        font-weight: 600;
+    /* Sidebar improvements */
+    .sidebar .stNumberInput, .sidebar .stSelectbox, .sidebar .stSlider {
+        margin-bottom: 16px;
     }
     
-    /* Progress container styling */
     .progress-container {
-        background: rgba(248, 250, 252, 0.9);
-        border: 1px solid rgba(226, 232, 240, 0.6);
+        background: rgba(128, 128, 128, 0.05);
         border-radius: 12px;
-        padding: 20px;
-        margin: 20px 0;
+        padding: 16px;
+        margin: 16px 0;
+        border: 1px solid rgba(128, 128, 128, 0.1);
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
     }
     
-    /* Results container */
-    .results-container {
-        margin: 24px 0;
-    }
-    
-    /* Separator */
-    .metric-separator {
-        margin: 30px 0;
-        border-bottom: 1px solid rgba(226, 232, 240, 0.6);
-    }
-    
-    /* Sidebar enhancements */
-    .sidebar .stNumberInput, 
-    .sidebar .stSelectbox, 
-    .sidebar .stSlider {
-        margin-bottom: 18px;
-    }
-    
-    /* Expander content */
     .expander-content {
-        background: rgba(248, 250, 252, 0.5);
+        background: rgba(128, 128, 128, 0.03);
         border-radius: 8px;
-        padding: 18px;
-        border: 1px solid rgba(226, 232, 240, 0.4);
+        padding: 16px;
     }
     
-    /* Dark mode compatibility */
+    .results-container {
+        margin: 20px 0;
+    }
+    
+    /* Dark mode support */
     @media (prefers-color-scheme: dark) {
-        .stTabs [data-baseweb="tab-list"] {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-        }
-        
-        .stTabs [data-baseweb="tab"]:hover {
+        .metric-container, .progress-container {
             background: rgba(255, 255, 255, 0.08);
             border: 1px solid rgba(255, 255, 255, 0.15);
         }
-        
-        .metric-container {
-            background: rgba(30, 41, 59, 0.8);
-            border: 1px solid rgba(71, 85, 105, 0.4);
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        .stTabs [data-baseweb="tab-list"] {
+            background: rgba(255, 255, 255, 0.08);
         }
-        
         .metric-container:hover {
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-            border-color: rgba(99, 102, 241, 0.4);
-        }
-        
-        .metric-container h3 {
-            color: rgba(226, 232, 240, 0.7);
-        }
-        
-        .metric-container h2 {
-            color: rgba(248, 250, 252, 0.95);
-        }
-        
-        .progress-container {
-            background: rgba(30, 41, 59, 0.9);
-            border: 1px solid rgba(71, 85, 105, 0.4);
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-        }
-        
-        .expander-content {
-            background: rgba(30, 41, 59, 0.5);
-            border: 1px solid rgba(71, 85, 105, 0.3);
-        }
-        
-        .metric-separator {
-            border-bottom-color: rgba(71, 85, 105, 0.4);
+            box-shadow: 0 4px 15px rgba(255, 255, 255, 0.1);
         }
     }
     
-    /* Enhanced responsiveness */
-    @media (max-width: 768px) {
-        .metric-container {
-            padding: 12px;
-            margin-bottom: 8px;
+    /* Light mode support */
+    @media (prefers-color-scheme: light) {
+        .metric-container, .progress-container {
+            background: rgba(0, 0, 0, 0.03);
+            border: 1px solid rgba(0, 0, 0, 0.1);
         }
-        
-        .metric-container h2 {
-            font-size: 1.1rem;
+        .stTabs [data-baseweb="tab-list"] {
+            background: rgba(0, 0, 0, 0.05);
         }
-        
-        .metric-container h3 {
-            font-size: 0.8rem;
-        }
-        
-        .progress-container {
-            padding: 16px;
-            margin: 16px 0;
+        .metric-container:hover {
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
         }
     }
     
-    /* Enhanced focus states for accessibility */
-    .stTabs [data-baseweb="tab"]:focus {
-        outline: 2px solid rgba(99, 102, 241, 0.5);
-        outline-offset: 2px;
+    /* Improved browser compatibility */
+    .metric-container {
+        -webkit-transform: translateY(0);
+        -moz-transform: translateY(0);
+        -ms-transform: translateY(0);
+        transform: translateY(0);
+    }
+    
+    .metric-container:hover {
+        -webkit-transform: translateY(-2px);
+        -moz-transform: translateY(-2px);
+        -ms-transform: translateY(-2px);
+        transform: translateY(-2px);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -294,8 +244,8 @@ def simulate_paths(ns, days_to_maturity, steps, volatility, risk_free_rate, unde
 with st.sidebar:
     st.header('⚙️ Option Parameters')
     
-    # Move contract type to top and make horizontal
-    trade_type = st.radio("Contract Type", ['Call', 'Put'], horizontal=True, help="Select the type of option contract")
+    # Contract type moved to top and made horizontal
+    trade_type = st.segmented_control("Contract type", ['Call', 'Put'], default='Call')
     
     col1, col2 = st.columns(2)
     with col1:
@@ -304,15 +254,15 @@ with st.sidebar:
         days_to_maturity = st.number_input('Time to Maturity (days)', value=365, step=1)
     
     with col2:
-        risk_free_rate = st.number_input('Risk-Free Interest Rate', value=0.1, step=0.01, format="%.3f")
+        risk_free_rate = st.number_input('Risk-Free Interest Rate ', value=0.1, step=0.01, format="%.3f")
         volatility = st.number_input('Annualized Volatility', value=0.2, step=0.01, format="%.3f")
     
     st.subheader('P&L Parameters')
     col3, col4 = st.columns(2)
     with col3:
-        option_purchase_price = st.number_input("Option's Price", step=0.01, format="%.2f") 
+        option_purchase_price = st.number_input("Option's Price") 
     with col4:
-        transaction_cost = st.number_input("Opening/Closing Cost", step=0.01, format="%.2f")
+        transaction_cost = st.number_input("Opening/Closing Cost") 
     
     st.subheader('Heatmap Parameters')
     col5, col6 = st.columns(2)
@@ -326,31 +276,19 @@ with st.sidebar:
     grid_size = st.slider('Grid size (nxn)', 5, 20, 10)
 
 #### Main App Layout ########################################################
-st.title('📈 Black-Scholes Options Pricing')
-st.write("Calculate option premiums using the Black-Scholes model with real-time heatmaps and Monte Carlo simulations.")
+st.header('Black Scholes options heatmap')
+st.write("Calculates an option's arbitrage-free premium using the Black Scholes option pricing model.")
 
 # Calculate current option prices
 call_price = BlackScholes(risk_free_rate, underlying_price, selected_strike, days_to_maturity / 365, volatility)
 put_price = BlackScholes(risk_free_rate, underlying_price, selected_strike, days_to_maturity / 365, volatility, 'P')
 
-# Display current prices with enhanced styling
-col1, col2, col3 = st.columns([1, 1, 1])
+# Display current prices with custom styling
+col1, col2 = st.columns(2)
 with col1:
-    st.markdown(
-        f'<div class="metric-container"><h3>Call Value</h3><h2>${call_price:.3f}</h2></div>', 
-        unsafe_allow_html=True
-    )
+    st.markdown(f"Call value: **{round(call_price,3)}**")
 with col2:
-    st.markdown(
-        f'<div class="metric-container"><h3>Put Value</h3><h2>${put_price:.3f}</h2></div>', 
-        unsafe_allow_html=True
-    )
-with col3:
-    put_call_parity = call_price - put_price + selected_strike * np.exp(-risk_free_rate * days_to_maturity / 365) - underlying_price
-    st.markdown(
-        f'<div class="metric-container"><h3>Put-Call Parity</h3><h2>${put_call_parity:.3f}</h2></div>', 
-        unsafe_allow_html=True
-    )
+    st.markdown(f"Put value: **{round(put_price,3)}**")
 
 # Add separator
 st.markdown('<div class="metric-separator"></div>', unsafe_allow_html=True)
@@ -360,16 +298,16 @@ spot_prices_space = np.linspace(min_spot_price, max_spot_price, grid_size)
 volatilities_space = np.linspace(min_vol, max_vol, grid_size)
 
 # Tabs for different views
-tab1, tab2, tab3 = st.tabs(["📊 Fair Value Heatmap", "💰 P&L Analysis", "🎲 Monte Carlo Simulation"])
+tab1, tab2, tab3 = st.tabs(["Option's fair value heatmap", "Option's P&L heatmap", "Expected underlying distribution"])
 
 with tab1:
-    st.write("Explore option values across different spot prices and volatilities")
+    st.write("Explore different contract's values given variations in Spot Prices and Annualized Volatilities")
     
     # Progress indicator
     progress_placeholder = st.empty()
     with progress_placeholder.container():
         st.markdown('<div class="progress-container">', unsafe_allow_html=True)
-        st.info("🔄 Calculating heatmaps using concurrent processing...")
+        st.info("Calculating heatmaps using concurrent processing...")
         progress_bar = st.progress(0)
         st.markdown('</div>', unsafe_allow_html=True)
     
@@ -391,119 +329,77 @@ with tab1:
     calc_time = time.time() - start_time
     progress_placeholder.empty()
     
-    # Create enhanced Plotly heatmaps
-    fig = make_subplots(
-        rows=2, cols=1,
-        subplot_titles=('Call Options Heatmap', 'Put Options Heatmap'),
-        vertical_spacing=0.08
-    )
-    
-    # Call heatmap
-    fig.add_trace(
-        go.Heatmap(
-            z=output_matrix_c.T,
-            x=[f"{x:.1f}" for x in spot_prices_space],
-            y=[f"{y:.2f}" for y in volatilities_space],
-            colorscale='Viridis',
-            showscale=True,
-            colorbar=dict(title="Call Value", x=1.02, len=0.45, y=0.77),
-            text=np.round(output_matrix_c.T, 1),
-            texttemplate="%{text}",
-            textfont={"size": 10}
-        ),
-        row=1, col=1
-    )
-    
-    # Put heatmap
-    fig.add_trace(
-        go.Heatmap(
-            z=output_matrix_p.T,
-            x=[f"{x:.1f}" for x in spot_prices_space],
-            y=[f"{y:.2f}" for y in volatilities_space],
-            colorscale='Plasma',
-            showscale=True,
-            colorbar=dict(title="Put Value", x=1.02, len=0.45, y=0.23),
-            text=np.round(output_matrix_p.T, 1),
-            texttemplate="%{text}",
-            textfont={"size": 10}
-        ),
-        row=2, col=1
-    )
-    
-    fig.update_layout(
-        title_text="Options Fair Value Analysis",
-        height=800,
-        showlegend=False,
-        font=dict(size=12)
-    )
-    fig.update_xaxes(title_text="Spot Price", row=1, col=1)
-    fig.update_xaxes(title_text="Spot Price", row=2, col=1)
-    fig.update_yaxes(title_text="Volatility", row=1, col=1)
-    fig.update_yaxes(title_text="Volatility", row=2, col=1)
-    
-    st.plotly_chart(fig, use_container_width=True)
+    # Create heatmaps exactly like the second program
+    fig, axs = plt.subplots(2, 1, figsize=(25, 25))
+
+    sns.heatmap(output_matrix_c.T, annot=True, fmt='.1f',
+                xticklabels=[str(round(i, 2)) for i in spot_prices_space], 
+                yticklabels=[str(round(i, 2)) for i in volatilities_space], 
+                ax=axs[0], cbar_kws={'label': 'Call Value'})
+    axs[0].set_title('Call heatmap', fontsize=20)
+    axs[0].set_xlabel('Spot Price', fontsize=15)
+    axs[0].set_ylabel('Annualized Volatility', fontsize=15)
+
+    sns.heatmap(output_matrix_p.T, annot=True, fmt='.1f',
+                xticklabels=[str(round(i, 2)) for i in spot_prices_space], 
+                yticklabels=[str(round(i, 2)) for i in volatilities_space], 
+                ax=axs[1], cbar_kws={'label': 'Put Value'})
+    axs[1].set_title('Put heatmap', fontsize=20)
+    axs[1].set_xlabel('Spot Price', fontsize=15)
+    axs[1].set_ylabel('Annualized Volatility', fontsize=15)
+
+    plt.tight_layout()
+    st.pyplot(fig)
 
 with tab2:
-    st.write("Analyze expected profit/loss across market scenarios")
+    st.write("Explore different expected P&L's from a specific contract trade given variations in the Spot Price and Annualized Volatility")
     
     if 'output_matrix_c' in locals() and 'output_matrix_p' in locals():
+        fig, axs = plt.subplots(1, 1, figsize=(25, 15))
+
         call_pl = output_matrix_c.T - option_purchase_price - 2 * transaction_cost
         put_pl = output_matrix_p.T - option_purchase_price - 2 * transaction_cost
+        pl_options = [call_pl, put_pl]
         
         selection = 0 if trade_type == 'Call' else 1
         contract_prices = [call_price, put_price]
-        pl_options = [call_pl, put_pl]
         
         specific_contract_pl = contract_prices[selection] - option_purchase_price - 2 * transaction_cost
-        st.markdown(
-            f'<div class="metric-container"><h3>Expected P&L (Current Parameters)</h3><h2>${specific_contract_pl:.2f}</h2></div>', 
-            unsafe_allow_html=True
-        )
+        st.markdown(f'Expected P&L given selected parameters: **{round(specific_contract_pl,2)}**')
         
-        # Create P&L heatmap with Plotly
-        fig = go.Figure(data=go.Heatmap(
-            z=pl_options[selection],
-            x=[f"{x:.1f}" for x in spot_prices_space],
-            y=[f"{y:.2f}" for y in volatilities_space],
-            colorscale='RdYlGn',
-            zmid=0,
-            showscale=True,
-            colorbar=dict(title="P&L ($)"),
-            text=np.round(pl_options[selection], 1),
-            texttemplate="%{text}",
-            textfont={"size": 10}
-        ))
-        
-        fig.update_layout(
-            title=f'{trade_type} Options P&L Analysis',
-            xaxis_title='Spot Price',
-            yaxis_title='Volatility',
-            height=600,
-            font=dict(size=12)
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
+        mapping_color = sns.diverging_palette(15, 145, s=60, as_cmap=True)
+        sns.heatmap(pl_options[selection], annot=True, fmt='.1f',
+                    xticklabels=[str(round(i, 2)) for i in spot_prices_space], 
+                    yticklabels=[str(round(i, 2)) for i in volatilities_space], 
+                    ax=axs, cmap=mapping_color, center=0)
+        axs.set_title(f'{trade_type} Expected P&L', fontsize=20)
+        axs.set_xlabel('Spot Price', fontsize=15)
+        axs.set_ylabel('Annualized Volatility', fontsize=15)
+
+        plt.tight_layout()
+        st.pyplot(fig)
     else:
         st.info("Please calculate the fair value heatmaps first in Tab 1")
 
 with tab3:
-    st.write('Monte Carlo simulation of underlying asset price and option P&L distributions')
+    st.write('Calculate the expected distribution of the underlying asset price, the option premium and the p&l from trading the option')
     
-    with st.expander("📖 Methodology"):
+    with st.expander("See methodology"):
         st.markdown('<div class="expander-content">', unsafe_allow_html=True)
-        st.write('The distribution is simulated using geometric Brownian motion:')
-        st.latex(r'S(t) = S(0) e^{(\mu - \sigma^2 / 2)t + \sigma W(t)}')
-        st.write('Where μ is the risk-free rate, σ is the annualized volatility, and S(0) is the initial spot price.')
+        st.write('The distribution is obtained by simulating $N$ times the underlying asset price as a geometric brownian process during a specified time period.' \
+        ' The function $S : [0, \\infty) \\mapsto [0, \\infty) $ will describe the stochastic process as: ')
+        st.latex('S(t) = S(0) e^{(\\mu - \\sigma^2 / 2)t + \\sigma W(t)} ')
+        st.write('Where $\\mu$ is the risk free rate, $\\sigma$ the annualized volatility of the asset you want to simulate and $S(0)$ the asset price at the beginning (spot price)')
         st.markdown('</div>', unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        ns = st.slider('Number of simulations', 100, 10000, 1000, 10)
+        ns = st.slider('Number of simulations ($N$)', 100, 10000, 1000, 10)
     with col2:
-        s_selection = st.radio('Time interval', ['Days', 'Hours', 'Minutes'], horizontal=True, 
-                              help='Display granularity for visualization')
+        s_selection = st.radio('Select time interval', ['Days', 'Hours', 'Minutes'], horizontal=True, 
+                              help='The time interval each price point will represent. This option is merely for visual purposes.')
     with col3:
-        timeshot = st.slider("Timeline position", 0.0, days_to_maturity / 365, days_to_maturity / 365, format="%.3f") 
+        timeshot = st.slider("Select chart's timestamp (days/year)", 0.0, days_to_maturity / 365, days_to_maturity / 365)
 
     if s_selection == 'Days':
         step = days_to_maturity 
@@ -512,7 +408,7 @@ with tab3:
     elif s_selection == 'Minutes':
         step = days_to_maturity * 24 * 60 
     
-    # Generate simulation paths
+    # Generate simulation paths using threading
     start_sim_time = time.time()
     simulation_paths = simulate_paths(ns, days_to_maturity, step, volatility, risk_free_rate, underlying_price)
     
@@ -533,77 +429,46 @@ with tab3:
     sim_time = time.time() - start_sim_time
 
     # Calculate probabilities
-    otm_probability = round(sum(option_prices == 0) / len(option_prices), 3)
-    itm_probability = round(1 - otm_probability, 3)
-    positive_pl_proba = round(sum(pl_results > 0) / len(pl_results), 3)
+    otm_probability = round(sum(option_prices == 0) / len(option_prices), 2)
+    itm_probability = round(1 - otm_probability, 2)
+    positive_pl_proba = round(sum(pl_results > 0) / len(pl_results), 2)
 
-    st.subheader('📈 Simulation Results')
+    st.subheader('Results')
     st.markdown('<div class="results-container">', unsafe_allow_html=True)
 
     col1, col2, col3 = st.columns(3)
-    with col1:
-        st.markdown(
-            f'<div class="metric-container"><h3>In-the-Money Probability</h3><h2>{itm_probability:.1%}</h2></div>', 
-            unsafe_allow_html=True
-        )
-    with col2:
-        st.markdown(
-            f'<div class="metric-container"><h3>Out-of-the-Money Probability</h3><h2>{otm_probability:.1%}</h2></div>', 
-            unsafe_allow_html=True
-        )
-    with col3:
-        st.markdown(
-            f'<div class="metric-container"><h3>Positive P&L Probability</h3><h2>{positive_pl_proba:.1%}</h2></div>', 
-            unsafe_allow_html=True
-        )
+    col1.metric("In-the money probability", itm_probability, border=True)
+    col2.metric("Out-the money probability", otm_probability, border=True)
+    col3.metric("Positive P&L probability", positive_pl_proba, border=True)
     
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # Create enhanced Plotly visualizations matching original layout
+    # Create plots matching the second program exactly
     col1, col2 = st.columns(2)
     
     with col1:
-        # Underlying asset price distribution (matches original)
-        index_to_use = -int(step - timeshot * step + 1)
-        price_data = simulation_paths[index_to_use, :]
-        
-        fig1 = px.histogram(
-            x=price_data, 
-            nbins=30,
-            title=f'Expected underlying asset price distribution at day {int(timeshot * 365)}',
-            labels={'x': 'Price', 'y': 'Count'},
-            marginal='box',
-            opacity=0.7
-        )
-        fig1.add_vline(x=selected_strike, line_dash="dash", line_color="red", 
-                      annotation_text="Strike price", annotation_position="top right")
-        fig1.update_layout(height=500, showlegend=False, font=dict(size=11))
-        st.plotly_chart(fig1, use_container_width=True)
+        # Underlying asset price distribution
+        t3_fig1 = plt.figure(figsize=(8, 8))
+        sns.histplot(simulation_paths[-int(step - timeshot * step + 1), :], kde=True, stat='probability')
+        plt.xlabel('Price')
+        plt.axvline(selected_strike, 0, 1, color='r', label='Strike price')
+        plt.title(f'Expected underlying asset price distribution at day {int(timeshot * 365)}')
+        plt.legend()
+        st.pyplot(t3_fig1)
 
     with col2:
-        # Option premium distribution (matches original layout)
-        fig2 = px.histogram(
-            x=option_prices,
-            nbins=30,
-            title=f'Expected {trade_type} premium at day {int(timeshot * 365)}',
-            labels={'x': 'Price', 'y': 'Count'},
-            opacity=0.7
-        )
-        fig2.update_layout(height=200, showlegend=False, font=dict(size=11))
-        st.plotly_chart(fig2, use_container_width=True)
-        
-        # P&L distribution (matches original layout)
-        fig3 = px.histogram(
-            x=pl_results,
-            nbins=30,
-            title=f'Expected P&L distribution at day {int(timeshot * 365)}',
-            labels={'x': 'Price', 'y': 'Count'},
-            opacity=0.7
-        )
-        fig3.add_vline(x=0, line_dash="solid", line_color="red", 
-                      annotation_text="Break-even", annotation_position="top right")
-        mean_pl = np.mean(pl_results)
-        fig3.add_vline(x=mean_pl, line_dash="dash", line_color="green", 
-                      annotation_text=f"Mean: ${mean_pl:.2f}", annotation_position="top left")
-        fig3.update_layout(height=280, showlegend=False, font=dict(size=11))
-        st.plotly_chart(fig3, use_container_width=True)
+        # Option premium distribution
+        t3_fig2 = plt.figure(figsize=(8, 3))
+        sns.histplot(option_prices, kde=True, stat='probability')
+        plt.xlabel('Price')
+        plt.title(f'Expected {trade_type} premium at day {int(timeshot * 365)}')
+        plt.legend()
+        st.pyplot(t3_fig2)
+
+        # P&L distribution
+        t3_fig3 = plt.figure(figsize=(8, 3))
+        sns.histplot(pl_results, kde=True, stat='probability')
+        plt.xlabel('Price')
+        plt.title(f'Expected P&L distribution at day {int(timeshot * 365)}')
+        plt.legend()
+        st.pyplot(t3_fig3)
