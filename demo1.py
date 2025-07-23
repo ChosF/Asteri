@@ -89,8 +89,8 @@ class AuthManager:
     """Handle user authentication with Supabase"""
     
     def __init__(self):
-        self.supabase_url = st.secrets.get("SUPABASE_URL", "")
-        self.supabase_key = st.secrets.get("SUPABASE_ANON_KEY", "")
+        self.supabase_url = ("https://pcfqzrzelgvutthbijzg.supabase.co")
+        self.supabase_key = ("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBjZnF6cnplbGd2dXR0aGJpanpnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI2MDY4ODYsImV4cCI6MjA2ODE4Mjg4Nn0.zVUs0K7vNIUvwxJCesUsVhjpZn5vTm0VrCoiuVCo07k")
         
         if not self.supabase_url or not self.supabase_key:
             st.error("Please configure SUPABASE_URL and SUPABASE_ANON_KEY in Streamlit secrets")
