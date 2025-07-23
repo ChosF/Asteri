@@ -1,6 +1,10 @@
-numpy
 streamlit
+supabase
+st-supabase-connection
+pandas
+numpy
+plotly
 matplotlib
-scipy
 seaborn
-numba
+scipy
+ably
