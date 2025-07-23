@@ -233,7 +233,7 @@ class AuthManager:
             return False
 
     def get_user_api_keys(self, user_id: str) -> Dict[str, str]:
-        """Get user's stored API keys"""
+        """Get user's stored API keys - Fixed to return all keys properly"""
         try:
             response = (
                 self.client.table("user_api_keys")
@@ -242,42 +242,64 @@ class AuthManager:
                 .execute()
             )
 
-            if response.data:
+            if response.data and len(response.data) > 0:
+                api_data = response.data[0]
                 return {
-                    "binance_api_key": response.data[0].get(
-                        "binance_api_key", ""
-                    ),
-                    "binance_secret_key": response.data[0].get(
-                        "binance_secret_key", ""
-                    ),
-                    "alpaca_api_key": response.data[0].get(
-                        "alpaca_api_key", ""
-                    ),
-                    "alpaca_secret_key": response.data[0].get(
-                        "alpaca_secret_key", ""
-                    ),
-                    "fmp_api_key": response.data[0].get("fmp_api_key", ""),
+                    "binance_api_key": api_data.get("binance_api_key") or "",
+                    "binance_secret_key": api_data.get("binance_secret_key") or "",
+                    "alpaca_api_key": api_data.get("alpaca_api_key") or "",
+                    "alpaca_secret_key": api_data.get("alpaca_secret_key") or "",
+                    "fmp_api_key": api_data.get("fmp_api_key") or "",
                 }
-            return {}
+            return {
+                "binance_api_key": "",
+                "binance_secret_key": "",
+                "alpaca_api_key": "",
+                "alpaca_secret_key": "",
+                "fmp_api_key": "",
+            }
         except Exception as e:
             logging.error(
                 f"Error loading API keys for user {user_id}: {e}",
                 exc_info=True,
             )
             st.error(f"Error loading API keys: {e}")
-            return {}
+            return {
+                "binance_api_key": "",
+                "binance_secret_key": "",
+                "alpaca_api_key": "",
+                "alpaca_secret_key": "",
+                "fmp_api_key": "",
+            }
 
     def save_user_api_keys(self, user_id: str, api_keys: Dict[str, str]):
-        """Save user's API keys"""
+        """Save user's API keys - Fixed to use proper upsert"""
         try:
-            # Upsert API keys
-            self.client.table("user_api_keys").upsert(
-                {
-                    "user_id": user_id,
-                    **api_keys,
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
-                }
-            ).execute()
+            # First check if a record exists
+            existing = (
+                self.client.table("user_api_keys")
+                .select("user_id")
+                .eq("user_id", user_id)
+                .execute()
+            )
+            
+            # Prepare the data
+            data = {
+                "user_id": user_id,
+                "binance_api_key": api_keys.get("binance_api_key", ""),
+                "binance_secret_key": api_keys.get("binance_secret_key", ""),
+                "alpaca_api_key": api_keys.get("alpaca_api_key", ""),
+                "alpaca_secret_key": api_keys.get("alpaca_secret_key", ""),
+                "fmp_api_key": api_keys.get("fmp_api_key", ""),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+            
+            if existing.data and len(existing.data) > 0:
+                # Update existing record
+                self.client.table("user_api_keys").update(data).eq("user_id", user_id).execute()
+            else:
+                # Insert new record
+                self.client.table("user_api_keys").insert(data).execute()
 
             # Update session state
             if st.session_state.user_session:
@@ -370,7 +392,7 @@ class DashboardCommunicator:
         self.ably_client = None
 
         # Initialize Ably if API key is available
-        ably_key = st.secrets.get("ABLY_API_KEY")
+        ably_key = ("eeRj2w.SxEzww:V5fRxHSA9MIHZPxbUtpnP_34Y-1DUYI54D4SaQ3WtV8")
         if ably_key:
             try:
                 self.ably_client = AblyRealtime(ably_key)
@@ -629,7 +651,7 @@ def show_api_keys_setup():
 
 
 def show_options_analysis():
-    """Show options analysis page with P&L probability"""
+    """Show options analysis page with P&L probability - Fixed styling and reduced redundancy"""
     st.header("📈 Options Analysis & P&L Probability")
 
     if not st.session_state.user_session:
@@ -756,18 +778,7 @@ def show_options_analysis():
                             transaction_cost=transaction_cost,
                         )
 
-                        # Calculate P&L and Max Loss as percentages
-                        if market_price > 0:
-                            expected_pl_pct = (
-                                pl_stats["expected_pl"] / market_price
-                            ) * 100
-                            max_loss_pct = (
-                                pl_stats["max_loss"] / market_price
-                            ) * 100
-                        else:
-                            expected_pl_pct = 0.0
-                            max_loss_pct = 0.0
-
+                        # Simplified enhanced row with only key metrics
                         enhanced_row = {
                             "Symbol": row["symbol"],
                             "Type": row["option_type"],
@@ -775,12 +786,9 @@ def show_options_analysis():
                             "Market Price": market_price,
                             "BS Price": bs_price,
                             "Days to Expiry": time_to_expiry,
-                            "Volatility": f"{volatility:.1%}",
-                            "P&L Probability": f"{pl_stats['positive_pl_probability']:.1%}",
-                            "Breakeven": f"${pl_stats['breakeven_price']:.2f}",
-                            "Expected P&L (%)": expected_pl_pct,
-                            "Max Loss (%)": max_loss_pct,
-                            "Expected P&L ($)": pl_stats["expected_pl"],
+                            "Volatility": volatility,
+                            "P&L Probability": pl_stats['positive_pl_probability'],
+                            "Breakeven": pl_stats['breakeven_price'],
                             "Volume": row.get("volume", 0),
                             "Bid": row.get("bid", 0),
                             "Ask": row.get("ask", 0),
@@ -825,90 +833,82 @@ def show_options_analysis():
                             filtered_df["Type"] == option_type_filter
                         ]
 
-                    # Convert probability back to float for filtering
-                    prob_values = [
-                        float(p.strip("%")) / 100
-                        for p in filtered_df["P&L Probability"]
-                    ]
+                    # Filter by probability
                     filtered_df = filtered_df[
-                        np.array(prob_values) >= min_probability
+                        filtered_df["P&L Probability"] >= min_probability
                     ]
                     filtered_df = filtered_df[
                         filtered_df["Days to Expiry"] >= min_days
                     ]
 
-                    # Create a display-friendly version of the dataframe
-                    display_df = filtered_df.copy()
+                    # Create styled dataframe with colors
+                    def style_dataframe(df):
+                        """Apply color styling to highlight best contracts"""
+                        styled_df = df.style
+                        
+                        # Color-code P&L Probability column
+                        styled_df = styled_df.background_gradient(
+                            subset=['P&L Probability'],
+                            cmap='RdYlGn',
+                            vmin=0,
+                            vmax=1
+                        )
+                        
+                        # Format columns
+                        styled_df = styled_df.format({
+                            'Market Price': '${:,.2f}',
+                            'BS Price': '${:,.2f}',
+                            'P&L Probability': '{:.1%}',
+                            'Breakeven': '${:,.2f}',
+                            'Volatility': '{:.1%}',
+                            'Strike': '${:,.2f}',
+                            'Bid': '${:,.2f}',
+                            'Ask': '${:,.2f}'
+                        })
+                        
+                        return styled_df
 
-                    # Format columns for display
-                    display_df["Market Price"] = display_df[
-                        "Market Price"
-                    ].apply(lambda x: f"${x:,.2f}")
-                    display_df["BS Price"] = display_df["BS Price"].apply(
-                        lambda x: f"${x:,.2f}"
-                    )
-                    display_df["Expected P&L (%)"] = display_df[
-                        "Expected P&L (%)"
-                    ].apply(lambda x: f"{x:.1f}%")
-                    display_df["Max Loss (%)"] = display_df[
-                        "Max Loss (%)"
-                    ].apply(lambda x: f"{x:.1f}%")
-
-                    # Select and reorder columns for the final table display
-                    display_columns = [
-                        "Symbol",
-                        "Type",
-                        "Strike",
-                        "Market Price",
-                        "BS Price",
-                        "Days to Expiry",
-                        "Volatility",
-                        "P&L Probability",
-                        "Breakeven",
-                        "Expected P&L (%)",
-                        "Max Loss (%)",
-                        "Volume",
-                        "Bid",
-                        "Ask",
-                    ]
-                    st.dataframe(
-                        display_df[display_columns],
-                        use_container_width=True,
-                        height=400,
-                    )
-
-                    # Charts
+                    # Display the styled dataframe
                     if len(filtered_df) > 0:
+                        st.dataframe(
+                            style_dataframe(filtered_df),
+                            use_container_width=True,
+                            height=400,
+                        )
+
+                        # Charts
                         col1, col2 = st.columns(2)
 
                         with col1:
                             st.subheader("P&L Probability by Strike")
+                            # Fixed the plotly figure update method
                             fig_prob = px.bar(
                                 filtered_df,
                                 x="Strike",
-                                y=[
-                                    float(p.strip("%")) / 100
-                                    for p in filtered_df["P&L Probability"]
-                                ],
+                                y="P&L Probability",
                                 color="Type",
                                 title="Positive P&L Probability by Strike Price",
                             )
-                            fig_prob.update_yaxis(tickformat=".1%")
+                            # Use update_layout instead of update_yaxis
+                            fig_prob.update_layout(
+                                yaxis=dict(tickformat=".1%")
+                            )
                             st.plotly_chart(
                                 fig_prob, use_container_width=True
                             )
 
                         with col2:
-                            st.subheader("Expected P&L Distribution")
-                            fig_pl = px.histogram(
+                            st.subheader("Contract Volume Distribution")
+                            fig_vol = px.histogram(
                                 filtered_df,
-                                x="Expected P&L ($)",  # Use numeric column
+                                x="Volume",
                                 nbins=20,
-                                title="Expected P&L Distribution ($)",
+                                title="Volume Distribution",
                             )
-                            fig_pl.update_xaxis(title="Expected P&L ($)")
-                            st.plotly_chart(fig_pl, use_container_width=True)
+                            st.plotly_chart(fig_vol, use_container_width=True)
 
+                    else:
+                        st.warning("No contracts match your filter criteria")
                 else:
                     st.warning("No valid options data to display")
             else:
