@@ -23,8 +23,6 @@ from dataclasses import dataclass
 # External libraries
 from supabase import create_client, Client
 from st_supabase_connection import SupabaseConnection
-import ably
-from ably import AblyRealtime
 
 # Configure logging
 logging.basicConfig(
@@ -233,7 +231,7 @@ class AuthManager:
             return False
 
     def get_user_api_keys(self, user_id: str) -> Dict[str, str]:
-        """Get user's stored API keys - Fixed to return all keys properly"""
+        """Get user's stored API keys """
         try:
             response = (
                 self.client.table("user_api_keys")
@@ -273,7 +271,7 @@ class AuthManager:
             }
 
     def save_user_api_keys(self, user_id: str, api_keys: Dict[str, str]):
-        """Save user's API keys - Fixed to use proper upsert"""
+        """Save user's API keys """
         try:
             # First check if a record exists
             existing = (
@@ -382,23 +380,40 @@ class AuthManager:
             st.error(f"Logout error: {e}")
 
 
-# Real-time Communication Manager
+# Real-time Communication Manager 
 class DashboardCommunicator:
-    """Handle real-time communication with the publisher"""
+    """Handle real-time communication with the publisher """
 
     def __init__(self, auth_manager: AuthManager):
         self.auth_manager = auth_manager
         self.supabase_client = auth_manager.client
         self.ably_client = None
+        self._ably_initialized = False
 
-        # Initialize Ably if API key is available
-        ably_key = ("eeRj2w.SxEzww:V5fRxHSA9MIHZPxbUtpnP_34Y-1DUYI54D4SaQ3WtV8")
-        if ably_key:
-            try:
-                self.ably_client = AblyRealtime(ably_key)
-            except Exception as e:
-                logging.warning(f"Failed to initialize Ably: {e}")
-                st.warning(f"Failed to initialize Ably: {e}")
+        # Remove automatic Ably initialization to prevent event loop errors
+        # We'll initialize it when needed in a proper async context
+
+    def _initialize_ably_if_needed(self):
+        """Initialize Ably client safely"""
+        if self._ably_initialized or self.ably_client is not None:
+            return
+
+        ably_key = st.secrets.get("ABLY_API_KEY")
+        if not ably_key:
+            logging.info("No Ably API key found, real-time features will be limited")
+            return
+
+        try:
+            # Import Ably here to avoid initialization issues
+            from ably import AblyRest
+            
+            # Use REST client instead of Realtime to avoid event loop issues
+            self.ably_client = AblyRest(ably_key)
+            self._ably_initialized = True
+            logging.info("Ably REST client initialized successfully")
+        except Exception as e:
+            logging.warning(f"Failed to initialize Ably REST client: {e}")
+            st.warning(f"Real-time features limited: {e}")
 
     def request_ticker_data(self, ticker: str):
         """Request data for a specific ticker from the publisher"""
@@ -439,10 +454,15 @@ class DashboardCommunicator:
                 request_data
             ).execute()
 
-            # Also broadcast via Ably if available
+            # Try to send via Ably REST if available
+            self._initialize_ably_if_needed()
             if self.ably_client:
-                channel = self.ably_client.channels.get("data_requests")
-                channel.publish("new_request", request_data)
+                try:
+                    channel = self.ably_client.channels.get("data_requests")
+                    channel.publish("new_request", request_data)
+                    logging.info(f"Request sent via Ably REST for {ticker}")
+                except Exception as e:
+                    logging.warning(f"Failed to send via Ably: {e}")
 
             st.success(
                 f"Requested data for {ticker}. Publisher will fetch options data shortly."
@@ -651,7 +671,7 @@ def show_api_keys_setup():
 
 
 def show_options_analysis():
-    """Show options analysis page with P&L probability - Fixed styling and reduced redundancy"""
+    """Show options analysis page with P&L probability """
     st.header("📈 Options Analysis & P&L Probability")
 
     if not st.session_state.user_session:
@@ -881,7 +901,7 @@ def show_options_analysis():
 
                         with col1:
                             st.subheader("P&L Probability by Strike")
-                            # Fixed the plotly figure update method
+                        
                             fig_prob = px.bar(
                                 filtered_df,
                                 x="Strike",
@@ -1252,10 +1272,10 @@ def show_user_preferences():
             )
 
 
-# Real-time data fragment
-@st.fragment(run_every=5.0)  # Update every 5 seconds
+# Real-time data fragment - SIMPLIFIED TO AVOID EVENT LOOP ISSUES
+@st.fragment(run_every=10.0)  # Update every 10 seconds to reduce load
 def real_time_data_fragment():
-    """Fragment for real-time data updates"""
+    """Fragment for real-time data updates - Simplified to avoid event loop issues"""
     if not st.session_state.get(
         "user_session"
     ) or not st.session_state.user_session.preferences.get(
@@ -1272,7 +1292,7 @@ def real_time_data_fragment():
 
     for symbol in symbols[:3]:  # Limit to first 3 symbols
         try:
-            # Get latest model results
+            # Get latest model results using synchronous calls only
             model_results = st.session_state.dashboard_comm.get_model_results(
                 symbol
             )
@@ -1287,10 +1307,12 @@ def real_time_data_fragment():
                         latest_result.get("model_name", "N/A"),
                     )
                 with col2:
-                    st.metric(
-                        "Result",
-                        f"${float(latest_result.get('result', 0)):.2f}",
-                    )
+                    result_value = latest_result.get("result", 0)
+                    try:
+                        formatted_result = f"${float(result_value):.2f}"
+                    except (ValueError, TypeError):
+                        formatted_result = str(result_value)
+                    st.metric("Result", formatted_result)
                 with col3:
                     timestamp = pd.to_datetime(
                         latest_result.get("timestamp", datetime.now())
@@ -1301,7 +1323,7 @@ def real_time_data_fragment():
                 f"Error in real-time fragment for {symbol}: {e}",
                 exc_info=True,
             )
-            pass  # Silently handle errors in real-time updates
+            # Silently handle errors in real-time updates
 
 
 # Main Application
