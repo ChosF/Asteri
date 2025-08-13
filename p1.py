@@ -19,6 +19,7 @@ import threading
 from typing import Dict, List, Optional, Any
 import logging
 from dataclasses import dataclass
+import requests
 
 # External libraries
 import supabase 
@@ -477,23 +478,135 @@ class DashboardCommunicator:
             st.error(f"Error requesting ticker data: {e}")
 
     def get_options_data(self, ticker: str) -> List[Dict]:
-        """Get options data for a ticker"""
+        """Get options data for a ticker using Binance endpoints and compute metrics locally."""
         try:
-            logging.info(f"Fetching options data for {ticker}")
-            response = (
-                self.supabase_client.table("options_data")
-                .select("*")
-                .eq("underlying", ticker.upper())
-                .order("strike")
-                .limit(50)
-                .execute()
-            )
+            base = ticker.upper().replace('USDT', '')
+            # Fetch from Binance Options endpoints
+            ticker_resp = requests.get('https://eapi.binance.com/eapi/v1/ticker', timeout=15)
+            mark_resp = requests.get('https://eapi.binance.com/eapi/v1/mark', timeout=15)
+            if ticker_resp.status_code != 200 or mark_resp.status_code != 200:
+                raise RuntimeError(f"Binance endpoints error: ticker={ticker_resp.status_code}, mark={mark_resp.status_code}")
 
-            return response.data
+            option_data = pd.DataFrame(ticker_resp.json())
+            # Drop unused columns if present
+            cols_to_drop = ['priceChange', 'priceChangePercent', 'openTime', 'closeTime', 'firstTradeId', 'tradeCount', 'lastQty', 'open', 'high', 'low', 'amount']
+            for c in cols_to_drop:
+                if c in option_data.columns:
+                    option_data.drop(columns=[c], inplace=True)
+            # Convert numeric columns except 'symbol'
+            if option_data.shape[1] > 1:
+                for c in option_data.columns[1:]:
+                    try:
+                        option_data[c] = option_data[c].astype(float)
+                    except Exception:
+                        pass
+            option_data['contractType'] = option_data['symbol'].apply(lambda x: x[-1])
+            option_data['underlyingSymbol'] = option_data['symbol'].apply(lambda x: x.split('-')[0])
+
+            option_greeks = pd.DataFrame(mark_resp.json())
+            if option_greeks.shape[1] > 1:
+                for c in option_greeks.columns[1:]:
+                    try:
+                        option_greeks[c] = option_greeks[c].astype(float)
+                    except Exception:
+                        pass
+            for c in ['highPriceLimit', 'lowPriceLimit']:
+                if c in option_greeks.columns:
+                    option_greeks.drop(columns=[c], inplace=True)
+
+            main_data = option_data.merge(option_greeks, on='symbol')
+            # Expiration date and time delta
+            def _parse_exp(sym: str):
+                try:
+                    s = '20' + sym.split('-')[1]
+                    return datetime.strptime(s, '%Y%m%d')
+                except Exception:
+                    return datetime.now()
+            main_data['expirationDate'] = main_data['symbol'].apply(_parse_exp)
+            main_data['timeDelta'] = main_data['expirationDate'].apply(lambda x: (x - datetime.today()).days / 365)
+            if 'lastPrice' in main_data.columns:
+                main_data = main_data[(main_data['lastPrice'] != 0)]
+            main_data = main_data[(main_data['timeDelta'] != 0)]
+
+            # Compute Black-Scholes and ITM probability (using markIV, exercisePrice, riskFreeInterest)
+            def _bs_pair(row):
+                try:
+                    r = float(row.get('riskFreeInterest', 0.05) or 0.05)
+                    S = float(row.get('exercisePrice', 0))
+                    K = float(row.get('strikePrice', 0))
+                    T = float(row.get('timeDelta', 0.0))
+                    sigma = float(row.get('markIV', 0.3) or 0.3)
+                    tipo = row.get('contractType', 'C')
+                    if T <= 0 or sigma <= 0 or K <= 0 or S <= 0:
+                        return pd.Series({'bsPrice': 0.0, 'itm_probability': 0.0})
+                    d1 = (np.log(S / K) + (r + sigma ** 2 / 2) * T) / (sigma * np.sqrt(T))
+                    d2 = d1 - sigma * np.sqrt(T)
+                    if tipo == 'C':
+                        price = S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
+                        itm_p = norm.cdf(d2)
+                    else:
+                        price = K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1)
+                        itm_p = norm.cdf(-d2)
+                    return pd.Series({'bsPrice': float(max(0.0, price)), 'itm_probability': float(itm_p)})
+                except Exception:
+                    return pd.Series({'bsPrice': 0.0, 'itm_probability': 0.0})
+
+            main_data[['bsPrice', 'itm_probability']] = main_data.apply(_bs_pair, axis=1)
+
+            # Contract unit
+            def _contract_unit(sym: str) -> int:
+                base = sym.split('-')[0]
+                if base in ['ETH', 'BTC', 'BNB', 'SOL']:
+                    return 1
+                if base == 'XRP':
+                    return 100
+                if base in ['DOG', 'DOGE']:
+                    return 1000
+                return 1
+            main_data['contractUnit'] = main_data['underlyingSymbol'].apply(_contract_unit)
+
+            # Trading fee
+            fee_rate = 0.0003
+            option_size = 1
+            def _trading_fee(row) -> float:
+                try:
+                    exercise_price = float(row.get('exercisePrice', 0) or 0)
+                    last_price = float(row.get('lastPrice', 0) or 0)
+                    unit = int(row.get('contractUnit', 1))
+                    fee = min(fee_rate * exercise_price * unit, last_price * option_size) * option_size
+                    return float(fee)
+                except Exception:
+                    return 0.0
+            main_data['trading_fee'] = main_data.apply(_trading_fee, axis=1)
+
+            # Success probability
+            def _success_probability(row) -> float:
+                try:
+                    trading_cost = float(row.get('lastPrice', 0) or 0) + 2 * float(row.get('trading_fee', 0) or 0)
+                    K = float(row.get('strikePrice', 0) or 0)
+                    r = float(row.get('riskFreeInterest', 0.05) or 0.05)
+                    sigma = float(row.get('markIV', 0.3) or 0.3)
+                    T = float(row.get('timeDelta', 0.0) or 0.0)
+                    S0 = float(row.get('exercisePrice', 0) or 0)
+                    if T <= 0 or sigma <= 0 or K <= 0 or S0 <= 0:
+                        return 0.0
+                    St = S0 * np.exp((r + sigma ** 2 / 2) * T)
+                    if row.get('contractType', 'C') == 'C':
+                        expected_relative_return = np.log(St / (K + trading_cost))
+                    else:
+                        expected_relative_return = np.log(K / (St + trading_cost))
+                    z = expected_relative_return / (sigma * np.sqrt(T)) - (sigma * np.sqrt(T))
+                    return float(norm.cdf(z))
+                except Exception:
+                    return 0.0
+            main_data['successProbability'] = main_data.apply(_success_probability, axis=1)
+
+            # Filter for requested underlying
+            main_data = main_data[main_data['underlyingSymbol'].str.upper() == base]
+
+            return main_data.to_dict(orient='records')
         except Exception as e:
-            logging.error(
-                f"Error fetching options data for {ticker}: {e}", exc_info=True
-            )
+            logging.error(f"Error fetching options data for {ticker}: {e}", exc_info=True)
             st.error(f"Error fetching options data: {e}")
             return []
 
